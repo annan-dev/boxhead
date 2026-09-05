@@ -20,8 +20,9 @@ import {
 import { decodeAvm1, type Avm1Object } from './swf/Avm1Decoder.js';
 import { buildClip, validate, type ArtPack, type Clip } from './ModelBuilder.js';
 import { decodeLossless } from './swf/BitmapDecoder.js';
-import { buildTexture, indexDefinitions } from './TextureBuilder.js';
-import type { Texture } from '@boxhead/shared';
+import { buildSprite, buildTexture, indexDefinitions } from './SpriteExtractor.js';
+import { extractRooms } from './RoomExtractor.js';
+import type { SpriteArt, Texture } from '@boxhead/shared';
 import { encodePng } from './png.js';
 
 const SOUND_FORMATS = ['uncompressed', 'adpcm', 'mp3', 'uncompressed-le', 'nellymoser16', 'nellymoser8', 'nellymoser', 'speex'];
@@ -135,11 +136,64 @@ function main(): void {
     process.stdout.write(`         unresolved: ${missingTextures.join(', ')}\n`);
   }
 
+  // ---- world art ----------------------------------------------------------
+  // Wall blocks, objects, pickups and effects are ordinary Flash symbols. The
+  // wall pieces are three-faced boxes, which is where the original's chunky 3D
+  // look comes from; several others are animated and keep every frame.
+  const WORLD_PATTERN =
+    /^(Piece\.|Object\.(Wall|Barrel|Mine|ChargePack|Pickup|LaserNode)$|Effect\.|Shot\.(Rocket|Grenade|ClusterShell|Devastator|DLaser)$|\w+\.MuzzleFlash$)/;
+  const sprites: Record<string, SpriteArt> = {};
+  const missingSprites: string[] = [];
+  for (const [id, name] of exports) {
+    if (!WORLD_PATTERN.test(name) || name.endsWith('.wav')) continue;
+    const sprite = buildSprite(name, id, defs);
+    if (sprite) sprites[name] = sprite;
+    else missingSprites.push(name);
+  }
+  const spriteFrames = Object.values(sprites).reduce((n, s) => n + s.frames.length, 0);
+  const spritePaths = Object.values(sprites).reduce(
+    (n, s) => n + s.frames.reduce((m, f) => m + f.layers.reduce((k, l) => k + l.paths.length, 0), 0),
+    0,
+  );
+  process.stdout.write(
+    `world    ${Object.keys(sprites).length} symbols, ${spriteFrames} frames, ${spritePaths} paths
+`,
+  );
+  if (missingSprites.length > 0) {
+    process.stdout.write(`         unresolved: ${missingSprites.join(', ')}
+`);
+  }
+
+  // ---- arenas -------------------------------------------------------------
+  // The ROOM_Single_* symbols hold the real level layouts: block placements and
+  // spawn markers, which beat any hand-authored approximation.
+  const rooms = extractRooms(exports, defs);
+  const totalBlocks = rooms.reduce((n, r) => n + r.blocks.length, 0);
+  const totalSpawns = rooms.reduce(
+    (n, r) => n + Object.values(r.spawns).reduce((m, list) => m + list.length, 0),
+    0,
+  );
+  process.stdout.write(
+    `rooms    ${rooms.length} arenas, ${totalBlocks} blocks, ${totalSpawns} spawn markers
+`,
+  );
+  for (const room of rooms) {
+    const solid = room.tiles.reduce((n, t) => n + t, 0);
+    process.stdout.write(
+      `         ${room.id}  ${String(room.width).padStart(4)}x${String(room.height).padStart(4)}px  ` +
+        `${String(room.blocks.length).padStart(3)} blocks  ${String(solid).padStart(4)} solid cells  ` +
+        `${room.spawns.zombies.length} zspawn ${room.spawns.players.length} pspawn
+`,
+    );
+  }
+
   const pack: ArtPack = {
     version: 1,
     source: { file: basename(swfPath), sha256, frameRate: swf.frameRate },
     clips,
     textures,
+    sprites,
+    rooms,
   };
 
   const report = validate(pack);

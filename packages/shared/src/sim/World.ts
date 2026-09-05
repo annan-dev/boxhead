@@ -11,7 +11,8 @@
  * is the single source of truth for what happens when; bugs that come from
  * emergent ordering are the hardest kind to reproduce, so there is none of it.
  */
-import { CELL_SIZE, GameMap, Tile, type RoomDef } from '../map/GameMap.js';
+import { GameMap, Tile } from '../map/GameMap.js';
+import type { ExtractedRoom } from '../art/ArtTypes.js';
 import { MapNav } from '../map/MapNav.js';
 import { circleBlocked, hasLineOfSight, moveCircle, raycast } from '../map/MapCollide.js';
 import { SpatialHash } from '../spatial/SpatialHash.js';
@@ -87,10 +88,12 @@ export function emptyCommand(): InputCommand {
 }
 
 export interface WorldOptions {
-  room: RoomDef;
+  room: ExtractedRoom;
   seed?: number;
   playerCount?: number;
   characters?: string[];
+  /** Scales wave size; larger arenas can carry heavier waves. */
+  levelRamp?: number;
 }
 
 const MAX_AFFECT_DEPTH = 4;
@@ -154,7 +157,9 @@ export class World {
     this.map = new GameMap(options.room);
     this.rng = new Rng(options.seed ?? 0x5eed);
     this.hash = new SpatialHash(this.map.width, this.map.height, HASH_CELL, MAX_THINGS);
-    this.ramp = options.room.levelRamp ?? 1;
+    // Bigger arenas absorb more zombies before they feel crowded.
+    const area = (this.map.width * this.map.height) / (800 * 640);
+    this.ramp = options.levelRamp ?? Math.max(0.85, Math.min(2.2, Math.sqrt(area)));
     this.levelInfo = levelDef(1, this.ramp);
 
     const count = options.playerCount ?? 1;
@@ -167,6 +172,11 @@ export class World {
     }
     for (const spot of this.map.spawns.pickups) {
       this.addPickup(spot.x, spot.y);
+    }
+    // The layout marks where destructible walls start the level.
+    for (const spot of this.map.spawns.walls) {
+      const cell = this.map.cellOf(spot.x, spot.y);
+      this.map.buildWall(cell.cx, cell.cy, FAKE_WALL_HP);
     }
     this.pushMessage(levelBanner(1), 'level');
   }
@@ -323,9 +333,18 @@ export class World {
   private addPickup(x: number, y: number): void {
     const id = this.allocId();
     if (id < 0) return;
+
+    // Ammo only ever drops for a weapon somebody has actually unlocked -- a
+    // crate for a gun you cannot draw is just a tease. Before anything is
+    // unlocked there is nothing useful to offer, so it becomes health.
+    const unlocked = WEAPON_ORDER.filter(
+      (weaponId) =>
+        weaponId !== 'pistol' &&
+        this.players.some((player) => player.weapons.get(weaponId)?.unlocked),
+    );
     // Weight toward ammo; health is the scarce resource that keeps runs tense.
-    const isLife = this.rng.bool(0.25);
-    const weapon = isLife ? null : (this.rng.pick(WEAPON_ORDER.slice(1)) ?? 'uzi');
+    const isLife = unlocked.length === 0 || this.rng.bool(0.25);
+    const weapon = isLife ? null : (this.rng.pick(unlocked) ?? null);
     this.pickups.push({
       id,
       alive: true,
@@ -464,7 +483,9 @@ export class World {
 
   /** Place an enemy on a spawn point, preferring one no player can see. */
   private spawnAtEdge(defId: EnemyId): boolean {
-    const spots = this.map.spawns.zombies;
+    const devilSpots = this.map.spawns.devils;
+    const spots =
+      defId === 'devil' && devilSpots.length > 0 ? devilSpots : this.map.spawns.zombies;
     if (spots.length === 0) return false;
     const start = this.rng.int(0, spots.length - 1);
     for (let i = 0; i < spots.length; i++) {
@@ -1410,11 +1431,13 @@ export class World {
           this.pushMessage('Life up!', 'info', 70);
         } else if (pickup.weapon) {
           const slot = player.weapons.get(pickup.weapon)!;
+          // Crates top up a weapon you already have; they never grant one.
+          // Weapons are earned by levelling, which is what paces the run.
+          if (!slot.unlocked) continue;
           const stats = statsFor(player.stats, pickup.weapon);
           const def = WEAPONS[pickup.weapon];
           slot.ammo += Math.round(def.totalAmmo * 0.5 * stats.ammoMul);
-          if (!slot.unlocked) slot.unlocked = true;
-          this.pushMessage(`Picked up ${def.name}`, 'info', 70);
+          this.pushMessage(`Picked up ${def.name} ammo`, 'info', 70);
         }
         pickup.alive = false;
         this.playSound('Object.Pickup', pickup.x, pickup.y);
@@ -1850,5 +1873,3 @@ export class World {
     }
   }
 }
-
-export { CELL_SIZE };

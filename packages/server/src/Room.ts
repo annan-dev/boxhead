@@ -10,8 +10,8 @@
  * `snapshot` (state the client reconciles against). Both are exercised here, so
  * adding prediction later is filling them in rather than restructuring.
  */
-import { World, emptyCommand, ROOMS, TICK_MS, type InputCommand, type RoomDef } from '@boxhead/shared';
-import type { WorldSnapshot } from '@boxhead/shared';
+import { World, emptyCommand, ROOMS, TICK_MS, type InputCommand } from '@boxhead/shared';
+import type { ExtractedRoom, WorldSnapshot } from '@boxhead/shared';
 
 export interface Participant {
   id: string;
@@ -28,7 +28,7 @@ export interface Participant {
 
 export interface RoomOptions {
   id: string;
-  room?: RoomDef;
+  room?: ExtractedRoom;
   seed?: number;
   maxPlayers?: number;
   /** Ticks between broadcasts; 3 gives about 17 updates a second. */

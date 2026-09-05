@@ -91,6 +91,39 @@ export class BitReader {
     return rect;
   }
 
+  /**
+   * CXFORMWITHALPHA: optional multiply and add terms per channel. Flash uses
+   * these to tint a shared symbol, which is how one grey barrel shape becomes a
+   * red one, so ignoring them loses most of the world's colour.
+   */
+  readColorTransform(withAlpha: boolean): {
+    rMul: number; gMul: number; bMul: number; aMul: number;
+    rAdd: number; gAdd: number; bAdd: number; aAdd: number;
+  } {
+    this.align();
+    const hasAdd = this.readBit() === 1;
+    const hasMult = this.readBit() === 1;
+    const bits = this.readUB(4);
+    const result = {
+      rMul: 256, gMul: 256, bMul: 256, aMul: 256,
+      rAdd: 0, gAdd: 0, bAdd: 0, aAdd: 0,
+    };
+    if (hasMult) {
+      result.rMul = this.readSB(bits);
+      result.gMul = this.readSB(bits);
+      result.bMul = this.readSB(bits);
+      if (withAlpha) result.aMul = this.readSB(bits);
+    }
+    if (hasAdd) {
+      result.rAdd = this.readSB(bits);
+      result.gAdd = this.readSB(bits);
+      result.bAdd = this.readSB(bits);
+      if (withAlpha) result.aAdd = this.readSB(bits);
+    }
+    this.align();
+    return result;
+  }
+
   /** MATRIX: optional scale and rotate/skew fields, then translation. */
   readMatrix(): [number, number, number, number, number, number] {
     this.align();
@@ -114,4 +147,52 @@ export class BitReader {
     this.align();
     return [a, b, c, d, tx, ty];
   }
+}
+
+/** A Flash colour transform: per-channel multiply (÷256) then add. */
+export interface ColorTransform {
+  rMul: number;
+  gMul: number;
+  bMul: number;
+  aMul: number;
+  rAdd: number;
+  gAdd: number;
+  bAdd: number;
+  aAdd: number;
+}
+
+export const IDENTITY_CXFORM: ColorTransform = {
+  rMul: 256, gMul: 256, bMul: 256, aMul: 256,
+  rAdd: 0, gAdd: 0, bAdd: 0, aAdd: 0,
+};
+
+/** Apply `child` first, then `parent`, matching nested display objects. */
+export function composeCxform(parent: ColorTransform, child: ColorTransform): ColorTransform {
+  const mul = (p: number, c: number): number => (p * c) / 256;
+  const add = (pMul: number, cAdd: number, pAdd: number): number => (pMul * cAdd) / 256 + pAdd;
+  return {
+    rMul: mul(parent.rMul, child.rMul),
+    gMul: mul(parent.gMul, child.gMul),
+    bMul: mul(parent.bMul, child.bMul),
+    aMul: mul(parent.aMul, child.aMul),
+    rAdd: add(parent.rMul, child.rAdd, parent.rAdd),
+    gAdd: add(parent.gMul, child.gAdd, parent.gAdd),
+    bAdd: add(parent.bMul, child.bAdd, parent.bAdd),
+    aAdd: add(parent.aMul, child.aAdd, parent.aAdd),
+  };
+}
+
+const clamp255 = (v: number): number => (v < 0 ? 0 : v > 255 ? 255 : Math.round(v));
+
+/** Transform a packed 0xRRGGBB colour and its alpha. */
+export function applyCxform(
+  color: number,
+  alpha: number,
+  cx: ColorTransform,
+): { color: number; alpha: number } {
+  const r = clamp255(((color >> 16) & 0xff) * (cx.rMul / 256) + cx.rAdd);
+  const g = clamp255(((color >> 8) & 0xff) * (cx.gMul / 256) + cx.gAdd);
+  const b = clamp255((color & 0xff) * (cx.bMul / 256) + cx.bAdd);
+  const a = Math.max(0, Math.min(1, alpha * (cx.aMul / 256) + cx.aAdd / 255));
+  return { color: (r << 16) | (g << 8) | b, alpha: a };
 }

@@ -5,7 +5,7 @@
  * keeps its tangential speed instead of sticking. That is the difference
  * between a crowd that flows around a barricade and one that piles onto it.
  */
-import { CELL_SIZE, GameMap } from './GameMap.js';
+import type { GameMap } from './GameMap.js';
 
 export interface MoveResult {
   x: number;
@@ -16,18 +16,19 @@ export interface MoveResult {
 
 /** True when a circle overlaps any blocked cell. */
 export function circleBlocked(map: GameMap, x: number, y: number, radius: number): boolean {
-  const minX = Math.floor((x - radius) / CELL_SIZE);
-  const maxX = Math.floor((x + radius) / CELL_SIZE);
-  const minY = Math.floor((y - radius) / CELL_SIZE);
-  const maxY = Math.floor((y + radius) / CELL_SIZE);
+  const cell = map.cell;
+  const minX = Math.floor((x - radius) / cell);
+  const maxX = Math.floor((x + radius) / cell);
+  const minY = Math.floor((y - radius) / cell);
+  const maxY = Math.floor((y + radius) / cell);
   for (let cy = minY; cy <= maxY; cy++) {
     for (let cx = minX; cx <= maxX; cx++) {
       if (!map.isBlocked(cx, cy)) continue;
       // Nearest point on the cell box to the circle centre.
-      const left = cx * CELL_SIZE;
-      const top = cy * CELL_SIZE;
-      const nearestX = Math.max(left, Math.min(x, left + CELL_SIZE));
-      const nearestY = Math.max(top, Math.min(y, top + CELL_SIZE));
+      const left = cx * cell;
+      const top = cy * cell;
+      const nearestX = Math.max(left, Math.min(x, left + cell));
+      const nearestY = Math.max(top, Math.min(y, top + cell));
       const dx = x - nearestX;
       const dy = y - nearestY;
       if (dx * dx + dy * dy < radius * radius) return true;
@@ -93,14 +94,14 @@ export function raycast(
 
   // Half-cell sampling: accurate enough at 40px cells and considerably cheaper
   // than a full DDA, which matters because every bullet sweeps every tick.
-  const steps = Math.ceil(length / (CELL_SIZE * 0.5));
+  const steps = Math.ceil(length / (map.cell * 0.5));
   let previousCell = -1;
   for (let step = 1; step <= steps; step++) {
     const t = step / steps;
     const px = x0 + dx * t;
     const py = y0 + dy * t;
-    const cx = Math.floor(px / CELL_SIZE);
-    const cy = Math.floor(py / CELL_SIZE);
+    const cx = Math.floor(px / map.cell);
+    const cy = Math.floor(py / map.cell);
     const cell = cy * map.cols + cx;
     if (cell === previousCell) continue;
     previousCell = cell;

@@ -11,7 +11,7 @@ npm run dev                           # http://localhost:5173
 ```
 
 **Controls** — `WASD` move, mouse aim, click or `space` fire, `1`-`0` weapons,
-`Q`/`E` cycle, `P` pause, `R` restart, `M` mute, `F3` stats, `H` hide help.
+`Q`/`E` cycle, `P` pause, `R` restart, `M` mute, `Esc` menu, `F3` stats.
 
 ## Assets
 
@@ -59,6 +59,21 @@ later phase, so iteration is never invalidated mid-pass. Explosions queue their
 area effects for the *following* tick, which bounds chain reactions and
 reproduces the original's staggered chain-explosion rhythm.
 
+## The arenas
+
+All 18 rooms are the originals. Each `ROOM_Single_*` symbol is a MovieClip whose
+timeline places the level: a floor plate, a set of `Piece.*` blocks, and
+`World_Init_*` markers giving the player start, zombie and devil spawns, barrels,
+pickups and destructible walls. The extractor reads those placements, so the
+layouts are the real ones rather than approximations.
+
+Each block carries a pure-blue region in the source art. That is the author's
+footprint marker -- the ground the block occupies -- and it is what collision is
+rasterised from, with the rest of the geometry giving the height it stands at.
+
+Arenas unlock by reaching level 4 in the one before, and high scores, unlocks
+and settings persist in `localStorage`.
+
 ## How the art works
 
 The characters are not sprites. 4.64 MB of the 6.47 MB SWF is a single
@@ -101,6 +116,8 @@ barrels, mines, chain reactions, the multi-kill score multiplier, endless wave
 progression, persistent blood and scorch, and positional audio from the original
 samples.
 
-Not done yet: menus and character select, the remaining 14 of 18 rooms,
-split-screen co-op and deathmatch, saved high scores, and the netcode itself —
+Menus, arena select with generated minimaps, character select with live-rendered
+portraits, per-arena high scores and progressive unlocks are all in.
+
+Not done yet: split-screen co-op and deathmatch, and the netcode itself —
 prediction and reconciliation on top of the server that already runs.

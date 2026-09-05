@@ -9,13 +9,17 @@ export type {
   TextureLayer,
   SubPath,
   PathCommand,
+  SpriteArt,
+  SpriteFrame,
+  RoomBlock,
+  ExtractedRoom,
 } from './art/ArtTypes.js';
 
 export { Rng } from './math/Rng.js';
 export * from './math/MathUtil.js';
 export { SpatialHash } from './spatial/SpatialHash.js';
-export { GameMap, CELL_SIZE, Tile } from './map/GameMap.js';
-export type { RoomDef, TileType, SpawnPoints } from './map/GameMap.js';
+export { GameMap, CELL_SIZE, Tile, roomFromAscii } from './map/GameMap.js';
+export type { AsciiRoom, TileType, SpawnPoints } from './map/GameMap.js';
 export { MapNav } from './map/MapNav.js';
 export * from './map/MapCollide.js';
 

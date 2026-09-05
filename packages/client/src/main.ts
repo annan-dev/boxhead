@@ -1,9 +1,9 @@
 /**
- * Entry point: loads the extracted art, builds a world, and runs the game.
+ * Entry point and app state machine.
  *
  * The simulation lives in @boxhead/shared and knows nothing about the browser.
- * This module owns everything the simulation must not: the canvas, the clock,
- * input devices, and drawing.
+ * This module owns everything it must not: the canvas, the clock, input
+ * devices, audio, menus and drawing.
  */
 import {
   ROOMS,
@@ -11,41 +11,16 @@ import {
   World,
   emptyCommand,
   type ArtPack,
-  type RoomDef,
+  type ExtractedRoom,
 } from '@boxhead/shared';
 import { Loop } from './loop/Loop.js';
 import { Input } from './input/Input.js';
 import { Camera } from './render/Camera.js';
 import { GameRenderer } from './render/GameRenderer.js';
 import { Hud } from './ui/Hud.js';
+import { Menus, type RunResult } from './ui/Menus.js';
+import { SaveData } from './state/SaveData.js';
 import { AudioEngine, SOUND_NAMES } from './audio/AudioEngine.js';
-
-const app = document.querySelector<HTMLDivElement>('#app')!;
-app.innerHTML = `
-  <style>
-    :root { color-scheme: dark; }
-    html, body { margin: 0; height: 100%; background: #07080a; overflow: hidden; }
-    body { font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: #dfe3e8; }
-    #view { display: block; width: 100vw; height: 100vh; cursor: crosshair; }
-    #boot { position: fixed; inset: 0; display: grid; place-content: center; gap: 10px;
-            text-align: center; background: #07080a; }
-    #boot h1 { margin: 0; font-size: 15px; letter-spacing: .3em; color: #8b939e;
-               text-transform: uppercase; }
-    #boot p { margin: 0; color: #6f7883; max-width: 460px; line-height: 1.6; }
-    #boot code { color: #ffd88a; }
-    #help { position: fixed; left: 16px; top: 14px; color: #6f7883; line-height: 1.7;
-            pointer-events: none; text-shadow: 0 1px 2px #000; }
-    #help b { color: #aab2bd; }
-    #help.hidden { display: none; }
-  </style>
-  <canvas id="view"></canvas>
-  <div id="help">
-    <b>WASD</b> move &nbsp; <b>mouse</b> aim &nbsp; <b>click / space</b> fire<br>
-    <b>1-0</b> weapon &nbsp; <b>Q/E</b> cycle &nbsp; <b>P</b> pause &nbsp; <b>R</b> restart<br>
-    <b>M</b> mute &nbsp; <b>F3</b> stats &nbsp; <b>H</b> hide this
-  </div>
-  <div id="boot"><h1>Boxhead</h1><p>Loading art&hellip;</p></div>
-`;
 
 /**
  * Roughly how much arena to keep on screen, in world units. These set how
@@ -55,10 +30,37 @@ app.innerHTML = `
 const VIEW_WORLD_WIDTH = 720;
 const VIEW_WORLD_HEIGHT = 460;
 
+const app = document.querySelector<HTMLDivElement>('#app')!;
+app.innerHTML = `
+  <style>
+    :root { color-scheme: dark; }
+    html, body { margin: 0; height: 100%; background: #07080a; overflow: hidden; }
+    body { font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+           color: #dfe3e8; }
+    #view { display: block; width: 100vw; height: 100vh; cursor: crosshair; }
+    #boot { position: fixed; inset: 0; display: grid; place-content: center; gap: 10px;
+            text-align: center; background: #07080a; z-index: 30; }
+    #boot h1 { margin: 0; font-size: 15px; letter-spacing: .3em; color: #8b939e;
+               text-transform: uppercase; }
+    #boot p { margin: 0; color: #6f7883; max-width: 460px; line-height: 1.6; }
+    #boot code { color: #ffd88a; }
+    /* A short reminder on entering a run, then it gets out of the way. */
+    #hint { position: fixed; left: 50%; bottom: 108px; transform: translateX(-50%);
+            color: #8b939e; background: rgba(10,11,13,.72); padding: 7px 14px;
+            border-radius: 20px; pointer-events: none; opacity: 0;
+            transition: opacity .5s; white-space: nowrap; }
+    #hint.on { opacity: 1; }
+    #hint b { color: #dfe3e8; }
+  </style>
+  <canvas id="view"></canvas>
+  <div id="hint"></div>
+  <div id="boot"><h1>Boxhead</h1><p>Loading art&hellip;</p></div>
+`;
+
 const canvas = app.querySelector<HTMLCanvasElement>('#view')!;
 const ctx = canvas.getContext('2d', { alpha: false })!;
 const boot = app.querySelector<HTMLDivElement>('#boot')!;
-const help = app.querySelector<HTMLDivElement>('#help')!;
+const hint = app.querySelector<HTMLDivElement>('#hint')!;
 
 let pack: ArtPack;
 try {
@@ -75,16 +77,21 @@ try {
 }
 boot.remove();
 
-const room: RoomDef = ROOMS[0]!;
-let world = new World({ room, seed: Date.now() & 0xffff, playerCount: 1 });
-let renderer = new GameRenderer(world, pack, room.floorStyle ?? 'concrete');
-let hud = new Hud(world);
-const camera = new Camera(canvas.width, canvas.height, world.map.width, world.map.height);
+// Development-only art gallery at /#gallery, for eyeballing extracted symbols.
+if (import.meta.env.DEV && window.location.hash === '#gallery') {
+  const { mountGallery } = await import('./dev/gallery.js');
+  mountGallery(app, pack);
+  throw new Error('gallery mode');
+}
+
+const rooms: ExtractedRoom[] = pack.rooms.length > 0 ? pack.rooms : ROOMS;
+const save = new SaveData();
 const input = new Input(canvas);
 
 const audio = new AudioEngine();
 void audio.init(SOUND_NAMES);
-// Browsers will not start an AudioContext until the player interacts.
+audio.setVolume(save.volume);
+if (save.muted) audio.toggleMute();
 const unlock = (): void => {
   audio.resume();
   window.removeEventListener('pointerdown', unlock);
@@ -93,17 +100,92 @@ const unlock = (): void => {
 window.addEventListener('pointerdown', unlock);
 window.addEventListener('keydown', unlock);
 
-/** Cheap noise source for cosmetic ambience; never touches the simulation. */
+/** Cheap noise for cosmetic ambience; never touches the simulation. */
 let ambienceSeed = 0x1a2b3c;
 const ambienceRandom = (): number => {
   ambienceSeed = (Math.imul(ambienceSeed, 1664525) + 1013904223) >>> 0;
   return ambienceSeed / 4294967296;
 };
 
+// ---- run state -----------------------------------------------------------
+
+interface Run {
+  world: World;
+  renderer: GameRenderer;
+  hud: Hud;
+  camera: Camera;
+  room: ExtractedRoom;
+  characterId: string;
+}
+
+let run: Run | null = null;
 let paused = false;
 let showStats = false;
-/** Rolling average of simulation cost, for the F3 overlay. */
 let stepAverage = 0;
+/** Set once the debrief has been shown, so it fires only on the first death. */
+let debriefed = false;
+
+const menus = new Menus(app, pack, rooms, save, {
+  onStart: (roomId, characterId) => startRun(roomId, characterId),
+  onResume: () => menus.show('none'),
+  onVolume: (value) => audio.setVolume(value),
+  onMuted: (value) => {
+    if (audio.muted !== value) audio.toggleMute();
+  },
+});
+
+function showHint(text: string, ms = 4200): void {
+  hint.innerHTML = text;
+  hint.classList.add('on');
+  window.setTimeout(() => hint.classList.remove('on'), ms);
+}
+
+function startRun(roomId: string, characterId: string): void {
+  const room = rooms.find((r) => r.id === roomId) ?? rooms[0]!;
+  const world = new World({
+    room,
+    seed: Date.now() & 0xffff,
+    playerCount: 1,
+    characters: [characterId],
+  });
+  const camera = new Camera(canvas.width, canvas.height, room.width, room.height);
+  camera.resize(canvas.width, canvas.height, VIEW_WORLD_WIDTH, VIEW_WORLD_HEIGHT);
+  const player = world.players[0];
+  if (player) camera.jumpTo(player.x, player.y);
+
+  run = {
+    world,
+    renderer: new GameRenderer(world, pack),
+    hud: new Hud(world),
+    camera,
+    room,
+    characterId,
+  };
+  paused = false;
+  debriefed = false;
+  menus.show('none');
+  showHint('<b>WASD</b> move &nbsp; <b>mouse</b> aim &nbsp; <b>click</b> fire &nbsp; <b>Esc</b> menu');
+}
+
+function finishRun(): void {
+  if (!run || debriefed) return;
+  debriefed = true;
+  const { world, room } = run;
+  const outcome = save.recordRun(room.id, room.index, {
+    score: world.score,
+    level: world.level,
+    kills: world.kills,
+  });
+  menus.show('debrief', {
+    roomId: room.id,
+    roomName: room.name,
+    score: world.score,
+    level: world.level,
+    kills: world.kills,
+    isBest: outcome.isBest,
+    unlockedNext: outcome.unlockedNext,
+  } satisfies RunResult);
+}
 
 function resize(): void {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -118,46 +200,43 @@ function resize(): void {
   canvas.width = width;
   canvas.height = height;
   ctx.imageSmoothingEnabled = false;
-  camera.resize(width, height, VIEW_WORLD_WIDTH, VIEW_WORLD_HEIGHT);
+  run?.camera.resize(width, height, VIEW_WORLD_WIDTH, VIEW_WORLD_HEIGHT);
 }
 window.addEventListener('resize', resize);
 // Layout can settle after the module runs, so track the element itself.
 new ResizeObserver(resize).observe(canvas);
 resize();
 
-const player0 = world.players[0];
-if (player0) camera.jumpTo(player0.x, player0.y);
-
-function restart(): void {
-  world = new World({ room, seed: Date.now() & 0xffff, playerCount: 1 });
-  renderer = new GameRenderer(world, pack, room.floorStyle ?? 'concrete');
-  hud = new Hud(world);
-  const player = world.players[0];
-  if (player) camera.jumpTo(player.x, player.y);
-  paused = false;
-}
-
 window.addEventListener('keydown', (event) => {
-  if (event.code === 'KeyR') restart();
+  if (menus.isOpen) return;
+  if (event.code === 'KeyR' && run) startRun(run.room.id, run.characterId);
   if (event.code === 'F3') {
     event.preventDefault();
     showStats = !showStats;
   }
-  if (event.code === 'KeyH') help.classList.toggle('hidden');
-  if (event.code === 'KeyM') audio.toggleMute();
+  if (event.code === 'KeyM') {
+    const muted = audio.toggleMute();
+    save.setMuted(muted);
+    showHint(muted ? 'sound muted' : 'sound on', 1400);
+  }
 });
 
 const loop = new Loop(
   {
     step: () => {
+      if (!run || menus.isOpen) return;
       if (input.consumePause()) paused = !paused;
-      if (paused || world.gameOver) return;
+      if (paused) return;
+      if (run.world.gameOver) {
+        finishRun();
+        return;
+      }
 
+      const { world, camera } = run;
       // The pointer aims in world space, so it must be unprojected first.
       const aim = camera.screenToWorld(input.pointerX, input.pointerY);
       const player = world.players[0];
-      const command = player ? input.buildCommand(aim.x, aim.y) : emptyCommand();
-      world.step([command]);
+      world.step([player ? input.buildCommand(aim.x, aim.y) : emptyCommand()]);
 
       const target = world.players[0];
       if (target) camera.follow(target.x, target.y);
@@ -173,20 +252,30 @@ const loop = new Loop(
       stepAverage = stepAverage * 0.9 + loop.stepMs * 0.1;
     },
     draw: (alpha) => {
+      if (!run) {
+        // Nothing to show behind the menus; keep the canvas quiet.
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.fillStyle = '#0a0b0d';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        return;
+      }
+      const { camera, renderer, hud } = run;
       camera.interpolate(alpha);
       renderer.draw(ctx, camera, alpha);
       hud.draw(ctx, camera);
 
-      if (paused) {
-        ctx.fillStyle = 'rgba(8,9,12,0.6)';
+      if (paused && !menus.isOpen) {
+        ctx.fillStyle = 'rgba(8,9,12,0.62)';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.font = '700 30px ui-monospace, Menlo, Consolas, monospace';
         ctx.fillStyle = '#e8ecf1';
         ctx.textAlign = 'center';
         ctx.fillText('PAUSED', canvas.width / 2, canvas.height / 2);
+        ctx.font = '13px ui-monospace, Menlo, Consolas, monospace';
+        ctx.fillStyle = '#8b939e';
+        ctx.fillText('P to resume, Esc for the menu', canvas.width / 2, canvas.height / 2 + 26);
         ctx.textAlign = 'left';
       }
-
       if (showStats) drawStats();
     },
   },
@@ -194,7 +283,10 @@ const loop = new Loop(
 );
 
 function drawStats(): void {
+  if (!run) return;
+  const { world } = run;
   const lines = [
+    `room        ${world.map.id}`,
     `tick        ${world.tick}`,
     `steps/frame ${loop.lastSteps}`,
     `sim         ${stepAverage.toFixed(2)} ms`,
@@ -203,52 +295,69 @@ function drawStats(): void {
     `shots       ${world.shots.length}`,
     `effects     ${world.effects.length}`,
     `decals      ${world.decals.length}`,
-    `objects     ${world.placeables.length}`,
   ];
   ctx.font = '11px ui-monospace, Menlo, Consolas, monospace';
   ctx.fillStyle = 'rgba(0,0,0,0.62)';
-  ctx.fillRect(10, canvas.height - 20 - lines.length * 14, 190, lines.length * 14 + 10);
+  ctx.fillRect(10, canvas.height - 22 - lines.length * 14, 210, lines.length * 14 + 12);
   ctx.fillStyle = '#9fe6b0';
   lines.forEach((line, i) => {
-    ctx.fillText(line, 18, canvas.height - 22 - (lines.length - 1 - i) * 14);
+    ctx.fillText(line, 18, canvas.height - 24 - (lines.length - 1 - i) * 14);
   });
 }
+
+menus.show('title');
+loop.start();
 
 // Development-only hooks. Vite drops this branch from production builds, so
 // the game never ships an object that reaches into its own internals.
 if (import.meta.env.DEV) {
-(window as unknown as Record<string, unknown>).__game = {
-    get world() { return world; },
-    camera,
+  (window as unknown as Record<string, unknown>).__game = {
+    get run() {
+      return run;
+    },
+    get world() {
+      return run?.world;
+    },
+    get camera() {
+      return run?.camera;
+    },
+    menus,
+    save,
     loop,
-    get paused() { return paused; },
-    get renderer() { return renderer; },
+    rooms,
+    startRun,
     /**
      * Drive the game without requestAnimationFrame, for automated checks in
      * environments that report the document as hidden and throttle rAF.
      */
-    debugRun(steps: number, opts: { moveX?: number; moveY?: number; fire?: boolean; aim?: [number, number]; slot?: number | null } = {}) {
+    debugRun(
+      steps: number,
+      opts: { moveX?: number; moveY?: number; fire?: boolean; aim?: [number, number] } = {},
+    ) {
+      if (!run) return null;
+      const { world, camera, renderer, hud } = run;
       for (let i = 0; i < steps; i++) {
         const command = emptyCommand();
         command.moveX = opts.moveX ?? 0;
         command.moveY = opts.moveY ?? 0;
         command.fire = opts.fire ?? false;
-        command.weaponSlot = i === 0 ? (opts.slot ?? null) : null;
-        const aim = opts.aim;
         const target = world.players[0];
-        command.aimX = aim ? aim[0] : (target ? target.x + 100 : 0);
-        command.aimY = aim ? aim[1] : (target ? target.y : 0);
+        command.aimX = opts.aim ? opts.aim[0] : (target?.x ?? 0) + 100;
+        command.aimY = opts.aim ? opts.aim[1] : (target?.y ?? 0);
         world.step([command]);
         world.sounds.length = 0;
-        const follow = world.players[0];
-        if (follow) camera.follow(follow.x, follow.y);
+        if (target) camera.follow(target.x, target.y);
       }
       camera.interpolate(0);
       renderer.draw(ctx, camera, 0);
       hud.draw(ctx, camera);
-      return { tick: world.tick, enemies: world.enemies.length, kills: world.kills, score: world.score, level: world.level };
+      return {
+        tick: world.tick,
+        enemies: world.enemies.length,
+        kills: world.kills,
+        score: world.score,
+        level: world.level,
+      };
     },
   };
 }
-
-loop.start();

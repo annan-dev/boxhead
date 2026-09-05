@@ -1,6 +1,10 @@
 /**
  * Heads-up display, drawn in screen space over the world.
  *
+ * The layout keeps the middle of the screen clear, because that is where the
+ * player is looking. Health and the weapon strip sit along the bottom, score in
+ * the top corner, and transient messages fade through the upper middle.
+ *
  * Everything here reads from the simulation and writes nothing back.
  */
 import {
@@ -12,9 +16,7 @@ import {
 } from '@boxhead/shared';
 import type { Camera } from '../render/Camera.js';
 
-const FONT = '600 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
-const FONT_SMALL = '600 10px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
-const FONT_BIG = '700 26px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+const MONO = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
 
 export class Hud {
   constructor(private readonly world: World) {}
@@ -24,181 +26,186 @@ export class Hud {
     const player = world.players[0];
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = 'left';
 
-    this.drawPopups(ctx, camera);
+    // Screen-space UI is laid out against a nominal height so it stays the same
+    // apparent size whatever the device pixel ratio.
+    const scale = Math.max(1, Math.min(2, ctx.canvas.height / 620));
+
+    this.drawPopups(ctx, camera, scale);
     if (player) {
-      this.drawHealth(ctx, player);
-      this.drawWeapons(ctx, player);
+      this.drawHealth(ctx, player, scale);
+      this.drawWeapons(ctx, player, scale);
     }
-    this.drawScore(ctx);
-    this.drawMessages(ctx);
-    if (world.gameOver) this.drawGameOver(ctx);
+    this.drawScore(ctx, scale);
+    this.drawMessages(ctx, scale);
   }
 
-  private drawHealth(ctx: CanvasRenderingContext2D, player: Player): void {
-    const x = 16;
-    const y = ctx.canvas.height - 46;
-    const width = 180;
+  private drawHealth(ctx: CanvasRenderingContext2D, player: Player, s: number): void {
+    const x = 18 * s;
+    const height = 16 * s;
+    const y = ctx.canvas.height - 30 * s - height;
+    const width = 210 * s;
     const ratio = Math.max(0, player.life / player.maxLife);
 
-    ctx.fillStyle = 'rgba(0,0,0,0.55)';
-    ctx.fillRect(x - 4, y - 4, width + 8, 22);
-    ctx.fillStyle = '#2a2f36';
-    ctx.fillRect(x, y, width, 14);
-    // Green through amber to red, so low health is readable at a glance.
-    const hue = ratio * 110;
-    ctx.fillStyle = `hsl(${hue}, 70%, 45%)`;
-    ctx.fillRect(x, y, width * ratio, 14);
+    ctx.fillStyle = 'rgba(8,9,12,0.62)';
+    this.roundRect(ctx, x - 6 * s, y - 6 * s, width + 12 * s, height + 12 * s, 5 * s);
+    ctx.fill();
 
-    ctx.font = FONT_SMALL;
-    ctx.fillStyle = '#e8ecf1';
-    ctx.fillText(`${Math.ceil(player.life)} / ${player.maxLife}`, x + 6, y + 11);
+    ctx.fillStyle = '#24272d';
+    this.roundRect(ctx, x, y, width, height, 3 * s);
+    ctx.fill();
+
+    // Green through amber to red, so low health is readable at a glance.
+    ctx.fillStyle = `hsl(${ratio * 110}, 68%, ${ratio < 0.25 ? 52 : 44}%)`;
+    this.roundRect(ctx, x, y, Math.max(2 * s, width * ratio), height, 3 * s);
+    ctx.fill();
+
+    ctx.font = `600 ${11 * s}px ${MONO}`;
+    ctx.fillStyle = 'rgba(255,255,255,0.92)';
+    ctx.fillText(`${Math.max(0, Math.ceil(player.life))}`, x + 8 * s, y + height - 4 * s);
 
     if (player.state === 'dead') {
-      ctx.font = FONT;
       ctx.fillStyle = '#ffb4a0';
       ctx.fillText(
         `respawning in ${Math.ceil(player.respawnTimer / 50)}s`,
         x,
-        y - 10,
+        y - 12 * s,
       );
     }
   }
 
-  private drawWeapons(ctx: CanvasRenderingContext2D, player: Player): void {
-    const world = this.world;
-    const y = ctx.canvas.height - 22;
-    let x = 210;
-    ctx.font = FONT_SMALL;
+  private drawWeapons(ctx: CanvasRenderingContext2D, player: Player, s: number): void {
+    const slots = WEAPON_ORDER.filter((id) => player.weapons.get(id)?.unlocked);
+    const slotWidth = 60 * s;
+    const slotHeight = 34 * s;
+    const gap = 5 * s;
+    const totalWidth = slots.length * slotWidth + (slots.length - 1) * gap;
+    let x = (ctx.canvas.width - totalWidth) / 2;
+    const y = ctx.canvas.height - 22 * s - slotHeight;
 
-    for (const id of WEAPON_ORDER) {
-      const slot = player.weapons.get(id);
-      if (!slot?.unlocked) continue;
+    for (const id of slots) {
+      const slot = player.weapons.get(id)!;
       const def = WEAPONS[id];
-      const active = player.current === id;
       const stats = statsFor(player.stats, id);
       const infinite = def.infiniteAmmo || stats.infiniteAmmo;
+      const active = player.current === id;
       const empty = !infinite && slot.ammo <= 0;
 
-      const width = 52;
-      ctx.fillStyle = active ? 'rgba(220,180,60,0.22)' : 'rgba(0,0,0,0.5)';
-      ctx.fillRect(x, y - 14, width, 20);
-      ctx.strokeStyle = active ? '#e0b93c' : 'rgba(255,255,255,0.12)';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(x + 0.5, y - 13.5, width - 1, 19);
+      ctx.fillStyle = active ? 'rgba(208,161,58,0.2)' : 'rgba(8,9,12,0.62)';
+      this.roundRect(ctx, x, y, slotWidth, slotHeight, 4 * s);
+      ctx.fill();
+      ctx.strokeStyle = active ? '#d0a13a' : 'rgba(255,255,255,0.1)';
+      ctx.lineWidth = active ? 2 * s : 1 * s;
+      this.roundRect(ctx, x, y, slotWidth, slotHeight, 4 * s);
+      ctx.stroke();
 
-      ctx.fillStyle = empty ? '#7d5c5c' : active ? '#ffe9a8' : '#aab2bd';
-      ctx.fillText(`${def.slot}`, x + 4, y);
-      ctx.fillText(def.shortName, x + 14, y);
-      ctx.fillStyle = empty ? '#a05050' : 'rgba(230,235,240,0.65)';
-      ctx.fillText(infinite ? '--' : String(slot.ammo), x + 14, y - 6);
-      x += width + 4;
+      ctx.font = `600 ${10 * s}px ${MONO}`;
+      ctx.fillStyle = active ? '#ffd88a' : '#6f7883';
+      ctx.fillText(String(def.slot), x + 6 * s, y + 13 * s);
+
+      ctx.font = `600 ${11 * s}px ${MONO}`;
+      ctx.fillStyle = empty ? '#8a5a52' : active ? '#f2ede2' : '#aab2bd';
+      ctx.fillText(def.shortName, x + 17 * s, y + 13 * s);
+
+      ctx.font = `${10 * s}px ${MONO}`;
+      ctx.fillStyle = empty ? '#a05050' : 'rgba(230,235,240,0.6)';
+      ctx.fillText(infinite ? 'unlimited' : `${slot.ammo}`, x + 6 * s, y + 26 * s);
+
+      x += slotWidth + gap;
     }
-
-    const ammo = world.ammoFor(player);
-    ctx.font = FONT;
-    ctx.fillStyle = '#e8ecf1';
-    ctx.fillText(
-      `${WEAPONS[player.current].name}  ${ammo < 0 ? 'INF' : ammo}`,
-      16,
-      ctx.canvas.height - 8,
-    );
   }
 
-  private drawScore(ctx: CanvasRenderingContext2D): void {
+  private drawScore(ctx: CanvasRenderingContext2D, s: number): void {
     const world = this.world;
-    ctx.font = FONT;
+    const right = ctx.canvas.width - 18 * s;
     ctx.textAlign = 'right';
-    const right = ctx.canvas.width - 16;
 
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.fillRect(right - 168, 10, 168, 58);
+    ctx.fillStyle = 'rgba(8,9,12,0.62)';
+    this.roundRect(ctx, right - 176 * s, 14 * s, 176 * s, 56 * s, 5 * s);
+    ctx.fill();
 
-    ctx.fillStyle = '#ffe9a8';
-    ctx.fillText(`SCORE ${world.score.toLocaleString()}`, right - 8, 30);
-    ctx.fillStyle = '#cdd4dd';
-    ctx.fillText(`LEVEL ${world.level}`, right - 8, 48);
-    ctx.font = FONT_SMALL;
-    ctx.fillStyle = '#9aa3ad';
-    ctx.fillText(`KILLS ${world.kills}`, right - 8, 62);
+    ctx.font = `700 ${20 * s}px ${MONO}`;
+    ctx.fillStyle = '#ffd88a';
+    ctx.fillText(world.score.toLocaleString(), right - 12 * s, 40 * s);
+
+    ctx.font = `${10 * s}px ${MONO}`;
+    ctx.fillStyle = '#8b939e';
+    ctx.fillText(`LEVEL ${world.level}   ${world.kills} KILLS`, right - 12 * s, 58 * s);
 
     if (world.multiplier > 1) {
-      ctx.font = FONT_BIG;
+      ctx.font = `700 ${26 * s}px ${MONO}`;
       ctx.fillStyle = '#ffcf4a';
-      ctx.fillText(`x${world.multiplier}`, right - 8, 100);
+      ctx.fillText(`x${world.multiplier}`, right - 12 * s, 96 * s);
     }
     ctx.textAlign = 'left';
   }
 
-  private drawMessages(ctx: CanvasRenderingContext2D): void {
+  private drawMessages(ctx: CanvasRenderingContext2D, s: number): void {
     const world = this.world;
     ctx.textAlign = 'center';
     const centre = ctx.canvas.width / 2;
-    let y = 64;
+    let y = 62 * s;
 
     for (const message of world.messages) {
-      // Fade over the last second so banners do not pop out of existence.
+      // Fade over the last second, so banners do not pop out of existence.
       const alpha = Math.min(1, message.life / 40);
       if (message.kind === 'level') {
-        ctx.font = FONT_BIG;
+        ctx.font = `700 ${24 * s}px ${MONO}`;
         ctx.fillStyle = `rgba(255,220,120,${alpha})`;
       } else if (message.kind === 'upgrade') {
-        ctx.font = FONT;
+        ctx.font = `600 ${14 * s}px ${MONO}`;
         ctx.fillStyle = `rgba(150,230,160,${alpha})`;
       } else if (message.kind === 'critical') {
-        ctx.font = FONT;
+        ctx.font = `600 ${14 * s}px ${MONO}`;
         ctx.fillStyle = `rgba(255,140,120,${alpha})`;
       } else {
-        ctx.font = FONT;
-        ctx.fillStyle = `rgba(210,218,228,${alpha})`;
+        ctx.font = `${13 * s}px ${MONO}`;
+        ctx.fillStyle = `rgba(200,208,218,${alpha * 0.85})`;
       }
       ctx.fillText(message.text, centre, y);
-      y += message.kind === 'level' ? 30 : 20;
+      y += (message.kind === 'level' ? 28 : 20) * s;
     }
     ctx.textAlign = 'left';
   }
 
-  private drawPopups(ctx: CanvasRenderingContext2D, camera: Camera): void {
+  private drawPopups(ctx: CanvasRenderingContext2D, camera: Camera, s: number): void {
     const world = this.world;
     ctx.textAlign = 'center';
     for (const popup of world.popups) {
       const screen = camera.worldToScreen(popup.x, popup.y);
-      const sx = screen.x;
-      const sy = screen.y;
-      if (sx < -40 || sy < -40 || sx > ctx.canvas.width + 40 || sy > ctx.canvas.height + 40) {
+      if (
+        screen.x < -60 || screen.y < -60 ||
+        screen.x > ctx.canvas.width + 60 || screen.y > ctx.canvas.height + 60
+      ) {
         continue;
       }
       const alpha = Math.min(1, popup.life / 20);
       if (popup.kind === 'combo') {
-        ctx.font = FONT;
+        ctx.font = `700 ${14 * s}px ${MONO}`;
         ctx.fillStyle = `rgba(255,190,80,${alpha})`;
       } else {
-        ctx.font = FONT_SMALL;
+        ctx.font = `600 ${11 * s}px ${MONO}`;
         ctx.fillStyle = `rgba(240,244,250,${alpha * 0.9})`;
       }
-      ctx.fillText(popup.text, sx, sy);
+      // A dark outline keeps popups legible over blood and explosions.
+      ctx.lineWidth = 3 * s;
+      ctx.strokeStyle = `rgba(0,0,0,${alpha * 0.65})`;
+      ctx.strokeText(popup.text, screen.x, screen.y);
+      ctx.fillText(popup.text, screen.x, screen.y);
     }
     ctx.textAlign = 'left';
   }
 
-  private drawGameOver(ctx: CanvasRenderingContext2D): void {
-    const world = this.world;
-    ctx.fillStyle = 'rgba(8,9,12,0.72)';
-    ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-    ctx.textAlign = 'center';
-    const centre = ctx.canvas.width / 2;
-    const middle = ctx.canvas.height / 2;
-
-    ctx.font = '700 40px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
-    ctx.fillStyle = '#ff8d78';
-    ctx.fillText('GAME OVER', centre, middle - 30);
-
-    ctx.font = FONT;
-    ctx.fillStyle = '#e8ecf1';
-    ctx.fillText(`Score ${world.score.toLocaleString()}`, centre, middle + 6);
-    ctx.fillText(`Reached level ${world.level} with ${world.kills} kills`, centre, middle + 28);
-    ctx.fillStyle = '#9aa3ad';
-    ctx.fillText('press R to play again', centre, middle + 58);
-    ctx.textAlign = 'left';
+  private roundRect(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    r: number,
+  ): void {
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, r);
   }
 }

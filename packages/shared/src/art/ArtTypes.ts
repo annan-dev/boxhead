@@ -65,6 +65,10 @@ export interface ArtPack {
   clips: Clip[];
   /** Face textures keyed by the material's `clip` symbol, e.g. "Head_Front_MC". */
   textures: Record<string, Texture>;
+  /** World art keyed by its exported symbol, e.g. "Piece.Wall1". */
+  sprites: Record<string, SpriteArt>;
+  /** The original arenas, in order. */
+  rooms: ExtractedRoom[];
 }
 
 /** Path commands in twips, matching canvas semantics. */
@@ -94,4 +98,57 @@ export interface Texture {
   name: string;
   bounds: { xMin: number; yMin: number; xMax: number; yMax: number };
   layers: TextureLayer[];
+}
+
+export interface SpriteFrame {
+  layers: TextureLayer[];
+}
+
+/**
+ * World art extracted from an exported MovieClip: wall blocks, barrels,
+ * pickups, explosions. Multi-frame symbols keep every frame, which is where
+ * the explosion animation and the wall damage states come from.
+ */
+export interface SpriteArt {
+  name: string;
+  bounds: { xMin: number; yMin: number; xMax: number; yMax: number };
+  frames: SpriteFrame[];
+}
+
+/** A solid block in an arena: a footprint on the ground plus its height. */
+export interface RoomBlock {
+  /** Source symbol, e.g. "Piece.WallPost". */
+  symbol: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** How far the block rises off the floor, in world pixels. */
+  rise: number;
+}
+
+/** An arena extracted from the original, with real geometry and spawn points. */
+export interface ExtractedRoom {
+  id: string;
+  index: number;
+  name: string;
+  /** Collision grid size in world pixels. */
+  cell: number;
+  width: number;
+  height: number;
+  cols: number;
+  rows: number;
+  /** Row-major; 0 floor, 1 solid. */
+  tiles: number[];
+  blocks: RoomBlock[];
+  /** Ground art, already positioned in world space. */
+  floor: SpriteFrame;
+  spawns: {
+    players: Array<{ x: number; y: number }>;
+    zombies: Array<{ x: number; y: number }>;
+    devils: Array<{ x: number; y: number }>;
+    barrels: Array<{ x: number; y: number }>;
+    pickups: Array<{ x: number; y: number }>;
+    walls: Array<{ x: number; y: number }>;
+  };
 }
