@@ -1,0 +1,9 @@
+node_modules/
+dist/
+dist-ts/
+*.tsbuildinfo
+
+# Extracted game art is the original author's copyrighted work.
+# It is produced locally from your own SWF and never committed.
+assets/
+*.swf

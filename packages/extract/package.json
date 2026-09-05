@@ -1,0 +1,15 @@
+{
+  "name": "@boxhead/extract",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "build": "tsc -b"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.1"
+  },
+  "dependencies": {
+    "@boxhead/shared": "*"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "name": "boxhead",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": ["packages/*"],
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "extract": "npm run -w @boxhead/extract start --",
+    "dev": "npm run -w @boxhead/client dev",
+    "build": "npm run -w @boxhead/shared build && npm run -w @boxhead/client build",
+    "server": "npm run -w @boxhead/server start",
+    "typecheck": "tsc -b",
+    "test": "node --test packages/*/test/*.test.js"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7",
+    "tsx": "^4.19.2"
+  }
+}
