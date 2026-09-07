@@ -2,6 +2,16 @@
   "name": "@boxhead/client",
   "version": "0.1.0",
   "type": "module",
-  "scripts": { "dev": "vite", "build": "tsc -b && vite build", "preview": "vite preview" },
-  "dependencies": { "@boxhead/shared": "*" }
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "build:single": "tsc -b && vite build --mode single && node -e \"require('node:fs').copyFileSync('dist/index.html','dist/boxhead.html')\"",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@boxhead/shared": "*"
+  },
+  "devDependencies": {
+    "vite-plugin-singlefile": "^2.3.3"
+  }
 }

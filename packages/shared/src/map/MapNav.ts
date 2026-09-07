@@ -8,14 +8,13 @@
  * All edge weights are small integers, so a bucket queue replaces a heap and
  * the sweep runs in linear time.
  *
- * The breakable-wall cost is the interesting number. Set well above floor,
- * zombies prefer an open route but chew through a barricade when the detour
- * grows long enough, which is exactly how Boxhead barricades behave.
+ * Barricades are as impassable as walls here: the original's zombies never
+ * attack an object, they path around it or wait, and only devils raze what
+ * stands in their way (`CThing_Creature_Devil.State_GotoPlayer`).
  */
 import { GameMap, Tile } from './GameMap.js';
 
 const COST_FLOOR = 10;
-const COST_BREAKABLE = 220;
 const COST_DIAGONAL = 14; // 10 * sqrt(2), rounded
 const UNREACHABLE = 0xffff;
 
@@ -50,10 +49,26 @@ export class MapNav {
     return this.builtRevision === this.map.revision && this.targetCell === this.map.index(cx, cy);
   }
 
+  /** What the field was built toward, so a snapshot can reproduce it. */
+  getTarget(): { targetCell: number; revision: number } {
+    return { targetCell: this.targetCell, revision: this.builtRevision };
+  }
+
+  /** Rebuild toward a snapshotted target, or forget it when it is stale. */
+  setTarget(targetCell: number, revision: number): void {
+    if (targetCell < 0 || revision !== this.map.revision) {
+      this.cost.fill(UNREACHABLE);
+      this.flow.fill(-1);
+      this.builtRevision = -1;
+      this.targetCell = -1;
+      return;
+    }
+    this.build(targetCell % this.map.cols, (targetCell / this.map.cols) | 0);
+  }
+
   private enterCost(cx: number, cy: number): number {
     const tile = this.map.tileAt(cx, cy);
-    if (tile === Tile.Solid) return -1;
-    if (tile === Tile.Breakable) return COST_BREAKABLE;
+    if (tile !== Tile.Floor) return -1;
     return COST_FLOOR;
   }
 
@@ -91,11 +106,13 @@ export class MapNav {
         const ny = cy + offset[1];
         if (!map.inBounds(nx, ny)) continue;
 
-        // Do not cut a corner between two blocked orthogonal neighbours.
+        // No diagonal past a blocked orthogonal neighbour: the original's
+        // `Nav_VD` drops both adjacent diagonals whenever a straight step is
+        // blocked, so a crowd never squeezes through a corner.
         if (offset[0] !== 0 && offset[1] !== 0) {
-          const blockedX = map.tileAt(cx + offset[0], cy) === Tile.Solid;
-          const blockedY = map.tileAt(cx, cy + offset[1]) === Tile.Solid;
-          if (blockedX && blockedY) continue;
+          const blockedX = map.tileAt(cx + offset[0], cy) !== Tile.Floor;
+          const blockedY = map.tileAt(cx, cy + offset[1]) !== Tile.Floor;
+          if (blockedX || blockedY) continue;
         }
 
         const enter = this.enterCost(nx, ny);

@@ -48,6 +48,12 @@ export class GameMap {
   readonly floorLayers: readonly TextureLayer[];
   /** Bumped whenever geometry changes, so navigation knows to rebuild. */
   revision = 0;
+  /**
+   * Bumped whenever a breakable cell takes damage as well as when geometry
+   * changes; a sender uses it to know whether a receiver's tile arrays are
+   * stale without triggering navigation rebuilds on every chew.
+   */
+  integrityRevision = 0;
 
   constructor(room: ExtractedRoom) {
     this.id = room.id;
@@ -106,6 +112,7 @@ export class GameMap {
     this.tiles[this.index(cx, cy)] = Tile.Breakable;
     this.integrity[this.index(cx, cy)] = hp;
     this.revision += 1;
+    this.integrityRevision += 1;
     return true;
   }
 
@@ -114,6 +121,7 @@ export class GameMap {
     if (this.tileAt(cx, cy) !== Tile.Breakable) return false;
     const index = this.index(cx, cy);
     const remaining = (this.integrity[index] ?? 0) - amount;
+    this.integrityRevision += 1;
     if (remaining > 0) {
       this.integrity[index] = remaining;
       return false;
@@ -122,6 +130,31 @@ export class GameMap {
     this.integrity[index] = 0;
     this.revision += 1;
     return true;
+  }
+
+  /**
+   * Identity of the arena as loaded, before any play. Two hosts whose maps
+   * hash alike can exchange snapshots; the check catches a client and server
+   * built from different art packs before a restore fails on a size mismatch.
+   */
+  layoutHash(): number {
+    let hash = 0x811c9dc5;
+    const mix = (value: number): void => {
+      hash ^= value | 0;
+      hash = Math.imul(hash, 0x01000193) >>> 0;
+    };
+    mix(this.cols);
+    mix(this.rows);
+    mix(this.cell);
+    for (const tile of this.tiles) mix(tile === Tile.Breakable ? Tile.Floor : tile);
+    for (const list of [this.spawns.players, this.spawns.zombies, this.spawns.devils, this.spawns.barrels, this.spawns.pickups, this.spawns.walls]) {
+      mix(list.length);
+      for (const spot of list) {
+        mix(Math.round(spot.x));
+        mix(Math.round(spot.y));
+      }
+    }
+    return hash >>> 0;
   }
 }
 
@@ -181,6 +214,7 @@ export function roomFromAscii(room: AsciiRoom): ExtractedRoom {
     tiles,
     blocks,
     floor: { layers: [] },
+    floorBounds: { x: 0, y: 0, w: cols * cell, h: rows * cell },
     spawns,
   };
 }

@@ -1,83 +1,128 @@
 /**
- * Wave pacing and scoring.
+ * Wave pacing and scoring, as the original computes them.
  *
- * The original tracks Zombie_TotalCount / Zombie_SpawnRate and the devil
- * equivalents per level, and layers a multi-kill multiplier on top. Both are
- * reproduced here as functions of level so progression continues indefinitely
- * rather than running off the end of a table.
+ * Recovered from `CUpgrades.InitLists` and `CUpgrades.Process` in the SWF.
+ * Every level's wave is a formula of the level number, so progression runs
+ * indefinitely. The score multiplier is the heart of the original's design:
+ * it climbs one step per kill, drains on a window that shrinks as it climbs,
+ * and every weapon and upgrade is awarded at a multiplier threshold (see
+ * upgrades.ts), never by level. Levels only make the waves bigger and faster.
+ *
+ * Original tick values are at 25Hz; everything here is in this simulation's
+ * 50Hz ticks.
  */
 import type { EnemyId } from './enemies.js';
 import { ENEMIES } from './enemies.js';
+import { ORIGINAL_TICK_RATIO } from './tuning.js';
 
 export interface LevelDef {
   level: number;
-  /** Total zombies released this wave. */
+  /** Total zombies released this wave: 10, 15, 20, ... */
   zombieTotal: number;
-  /** Ticks between zombie spawns. */
+  /** Ticks between zombie spawns: one a second at level 1, near-instant by 25. */
   zombieSpawnRate: number;
-  devilTotal: number;
-  devilSpawnRate: number;
-  /** Spawn weighting across the unlocked zombie variants. */
-  mix: Array<{ id: EnemyId; weight: number }>;
-  /** Concurrency cap; the rest queue until something dies. */
+  /** Zombies alive at once; the original also caps this at 60 for the renderer. */
   maxAlive: number;
+  devilTotal: number;
+  /** Devils alive at once. */
+  devilMaxAlive: number;
+  /**
+   * Ticks between devil spawns. The original counts this down ten times faster
+   * while zombies are still queued, so devils join the wave early.
+   */
+  devilSpawnRate: number;
+  /** Speed multiplier applied to every zombie and devil spawned this level. */
+  speedMul: number;
+  /** Spawn weighting across the zombie variants. */
+  mix: Array<{ id: EnemyId; weight: number }>;
 }
 
-export function levelDef(level: number, ramp = 1): LevelDef {
-  const n = Math.max(1, level);
-  const zombieTotal = Math.round((8 + n * 3.2 + Math.pow(n, 1.45)) * ramp);
-  const zombieSpawnRate = Math.max(5, Math.round(48 - n * 2.1));
-  const devilTotal = n < ENEMIES.devil.firstLevel ? 0 : Math.floor((n - 4) * 0.85);
-  const devilSpawnRate = Math.max(35, 160 - n * 5);
+/** The original's tables stop here; later levels repeat the last entry. */
+export const LAST_TABLE_LEVEL = 100;
 
+export function levelDef(level: number): LevelDef {
+  const shown = Math.max(1, Math.floor(level));
+  const n = Math.min(shown, LAST_TABLE_LEVEL);
   const mix: Array<{ id: EnemyId; weight: number }> = [];
   for (const enemy of Object.values(ENEMIES)) {
     if (enemy.weight <= 0 || n < enemy.firstLevel) continue;
     mix.push({ id: enemy.id, weight: enemy.weight });
   }
 
+  // Devils start on level 2 and grow by a quarter of one per level in total,
+  // three tenths per level in concurrency (capped at five). The original
+  // accumulates these in floating point, so the sums are formed the same way:
+  // at level 12 the tenths land just under four and the cap stays at three.
+  let devilTotalAcc = 1;
+  let devilAliveAcc = 1;
+  for (let i = 2; i < n; i++) {
+    devilTotalAcc += 0.25;
+    devilAliveAcc += 0.3;
+  }
+  const devilTotal = n < 2 ? 0 : Math.floor(devilTotalAcc);
+  const devilMaxAlive = n < 2 ? 0 : Math.floor(Math.min(5, devilAliveAcc));
+
   return {
-    level: n,
-    zombieTotal,
-    zombieSpawnRate,
+    level: shown,
+    zombieTotal: 10 + 5 * (n - 1),
+    zombieSpawnRate: Math.max(26 - n, 1) * ORIGINAL_TICK_RATIO,
+    maxAlive: Math.min(10 + 5 * (n - 1), 60),
     devilTotal,
-    devilSpawnRate,
+    devilMaxAlive,
+    devilSpawnRate: Math.max(250 - (n - 1), 25) * ORIGINAL_TICK_RATIO,
+    speedMul: Math.min(1 + n / 10, 5),
     mix,
-    maxAlive: Math.min(200, 45 + n * 7),
   };
 }
 
-/** Kills needed to clear a level; the wave total, so every spawn must die. */
-export function killsToClear(level: number, ramp = 1): number {
-  const def = levelDef(level, ramp);
+/** Kills needed to clear a level: the whole wave must die. */
+export function killsToClear(level: number): number {
+  const def = levelDef(level);
   return def.zombieTotal + def.devilTotal;
 }
 
 export const SCORING = {
-  /** Kills within this window count toward a multi-kill. */
-  multiKillWindow: 40,
-  /** Bonus by multi-kill size; index 0 and 1 are the ordinary case. */
-  multiKillBonus: [1, 1, 1.5, 2, 3, 4, 6],
-  /** Kills needed to raise the running multiplier by one. */
-  killsPerMultiplier: 10,
-  maxMultiplier: 8,
-  /** Base ticks before the multiplier decays; tightens as levels rise. */
-  multiplierWindow: 200,
+  /** The multiplier never climbs past this. */
+  maxMultiplier: 999,
+  /** A crate drops on every fifth kill of an unbroken quick-kill streak. */
+  pickupEveryStreakKills: 5,
+  /**
+   * Ticks a dropped crate stays before fading (original: 10 seconds). Real
+   * seconds: the original reads its frame rate live here, so the game speed
+   * setting does not stretch it. See `World.realTicks`.
+   */
+  pickupLifeTicks: 10 * 25 * ORIGINAL_TICK_RATIO,
+  /**
+   * Ticks before a room's own crate reappears after being taken: 10 seconds
+   * in single player and co-op, 30 in deathmatch (`CThing_Object_Pickup.PickedUp`).
+   */
+  pickupRespawnTicks: 10 * 25 * ORIGINAL_TICK_RATIO,
+  pickupRespawnTicksDeathmatch: 30 * 25 * ORIGINAL_TICK_RATIO,
+  /**
+   * The original tests its countdowns before decrementing and fires only once
+   * they were already below zero, so every window runs two original ticks
+   * longer than `GetTicks` says.
+   */
+  countdownLagTicks: 2 * ORIGINAL_TICK_RATIO,
 } as const;
 
-export function multiKillBonus(count: number): number {
-  const table = SCORING.multiKillBonus;
-  return table[Math.min(count, table.length - 1)] ?? 1;
+/**
+ * Ticks the multiplier holds at a given value before dropping one step
+ * (`CUpgrades.GetTicks`): three seconds at x1, shrinking on a 2.5-power curve
+ * to a tenth of a second by x100. High multipliers demand relentless killing.
+ *
+ * The original computes `3 + (3 * mFPS - 3) * k` with the live frame rate, so
+ * the window is a span of real time whatever the game speed; `speedFactor`
+ * is that rate divided by 25.
+ */
+export function multiplierWindow(multiplier: number, speedFactor = 1): number {
+  const index = Math.min(Math.max(1, multiplier), 100);
+  const k = Math.pow(101 - index, 2.5) / 100000;
+  const original = 3 + (3 * 25 * speedFactor - 3) * k;
+  return Math.max(1, Math.round(original * ORIGINAL_TICK_RATIO));
 }
 
-export function multiKillLabel(count: number): string | null {
-  if (count === 2) return 'DOUBLE KILL';
-  if (count === 3) return 'TRIPLE KILL';
-  if (count >= 4) return 'MULTI KILL!';
-  return null;
-}
-
-/** The decay window shortens with level, so late waves demand faster kills. */
-export function multiplierWindow(level: number): number {
-  return SCORING.multiplierWindow - Math.min(120, level * 4);
+/** The streak counter that paces crate drops runs on a sixth of that window. */
+export function streakWindow(streak: number, speedFactor = 1): number {
+  return Math.max(1, Math.round(multiplierWindow(streak, speedFactor) / 6));
 }

@@ -23,12 +23,22 @@ export interface SaveState {
   version: 1;
   characterId: string;
   lastRoomId: string | null;
+  /** One of the original's four presets; see DIFFICULTIES in the shared package. */
+  difficulty: string;
+  /** Slow / Normal / Fast; see GAME_SPEEDS. */
+  gameSpeed: string;
+  /** The original's Devils On/Off. */
+  devils: boolean;
   volume: number;
   muted: boolean;
   /** Best result per arena, keyed by room id. */
   rooms: Record<string, RoomRecord>;
   /** Highest arena index unlocked; the rest are earned by clearing levels. */
   unlockedRooms: number;
+  /** Last server address typed on the multiplayer screen. */
+  netServer: string;
+  /** Name shown to other players. */
+  playerName: string;
 }
 
 function defaults(): SaveState {
@@ -36,10 +46,15 @@ function defaults(): SaveState {
     version: 1,
     characterId: 'swat',
     lastRoomId: null,
+    difficulty: 'beginner',
+    gameSpeed: 'normal',
+    devils: true,
     volume: 0.7,
     muted: false,
     rooms: {},
     unlockedRooms: 1,
+    netServer: '',
+    playerName: '',
   };
 }
 
@@ -82,6 +97,33 @@ export class SaveData {
     return this.state.lastRoomId;
   }
 
+  get difficulty(): string {
+    return this.state.difficulty;
+  }
+
+  setDifficulty(id: string): void {
+    this.state.difficulty = id;
+    this.persist();
+  }
+
+  get gameSpeed(): string {
+    return this.state.gameSpeed;
+  }
+
+  setGameSpeed(id: string): void {
+    this.state.gameSpeed = id;
+    this.persist();
+  }
+
+  get devils(): boolean {
+    return this.state.devils;
+  }
+
+  setDevils(value: boolean): void {
+    this.state.devils = value;
+    this.persist();
+  }
+
   get volume(): number {
     return this.state.volume;
   }
@@ -101,6 +143,20 @@ export class SaveData {
 
   setLastRoom(id: string): void {
     this.state.lastRoomId = id;
+    this.persist();
+  }
+
+  get netServer(): string {
+    return this.state.netServer;
+  }
+
+  get playerName(): string {
+    return this.state.playerName;
+  }
+
+  setNet(server: string, playerName: string): void {
+    this.state.netServer = server.trim();
+    this.state.playerName = playerName.trim().slice(0, 24);
     this.persist();
   }
 
@@ -143,11 +199,30 @@ export class SaveData {
    * Store the result of a run.
    * Returns whether it beat the previous best for that arena.
    */
+  /**
+   * Settings that make a run easier than the original's default take it out
+   * of the high-score table: no devils, or the slow game speed. The menus
+   * flag those options and the debrief says so.
+   */
+  get countsForHighScores(): boolean {
+    return this.state.devils && this.state.gameSpeed !== 'slow';
+  }
+
+  /** Why the current settings do not count, for the menus. */
+  get practiceReason(): string | null {
+    const reasons: string[] = [];
+    if (!this.state.devils) reasons.push('devils off');
+    if (this.state.gameSpeed === 'slow') reasons.push('slow speed');
+    return reasons.length > 0 ? reasons.join(', ') : null;
+  }
+
   recordRun(
     roomId: string,
     roomIndex: number,
     result: { score: number; level: number; kills: number },
   ): { isBest: boolean; unlockedNext: boolean } {
+    // A practice run is never banked: no score, no unlock.
+    if (!this.countsForHighScores) return { isBest: false, unlockedNext: false };
     const previous = this.recordFor(roomId);
     const isBest = result.score > previous.score;
     this.state.rooms[roomId] = {
@@ -169,8 +244,8 @@ export class SaveData {
 
   /** Clear every stored score and unlock, for the options screen. */
   reset(): void {
-    const { characterId, volume, muted } = this.state;
-    this.state = { ...defaults(), characterId, volume, muted };
+    const { characterId, volume, muted, difficulty, gameSpeed, devils } = this.state;
+    this.state = { ...defaults(), characterId, volume, muted, difficulty, gameSpeed, devils };
     this.persist();
   }
 }

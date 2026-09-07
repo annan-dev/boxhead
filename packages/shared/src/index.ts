@@ -29,15 +29,32 @@ export * from './data/enemies.js';
 export * from './data/upgrades.js';
 export * from './data/levels.js';
 export { ROOMS, roomById } from './data/rooms.js';
+export { MODES, DEATHMATCH_KILL_TARGETS } from './data/modes.js';
+export type { ModeDef } from './data/modes.js';
 
 export { World, emptyCommand } from './sim/World.js';
 export type { InputCommand, WorldOptions } from './sim/World.js';
 export type * from './sim/Snapshot.js';
+export { SnapshotError } from './sim/Snapshot.js';
 export {
   PROTOCOL_VERSION,
+  DEFAULT_PORT,
   encode,
   decodeClientMessage,
   decodeServerMessage,
+  serverUrl,
 } from './net/Protocol.js';
-export type { ClientMessage, ServerMessage } from './net/Protocol.js';
+export type {
+  ClientMessage,
+  ServerMessage,
+  MatchConfig,
+  GameMode,
+  RoomPhase,
+  LobbyPlayer,
+  StampedCommand,
+  NetEvent,
+} from './net/Protocol.js';
 export type * from './sim/types.js';
+export { DEFAULT_MATCH_CONFIG, tickMsFor, worldFromConfig } from './net/Match.js';
+export { InputHistory, reconcile, inferRemoteCommand } from './net/Reconcile.js';
+export type { ReconcileHooks } from './net/Reconcile.js';

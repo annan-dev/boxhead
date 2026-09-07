@@ -2,11 +2,18 @@
  * Follow camera with a deadzone.
  *
  * The deadzone means small movements do not drag the world around, which keeps
- * the picture steady while still framing the player during a run. Shake and the
- * damage flash live here too: both are draw-only and never feed back into the
- * simulation, so they cannot affect determinism.
+ * the picture steady while still framing the player during a run. The camera
+ * is held inside the painted floor, so the void beyond the arena never shows.
+ * Shake lives in the renderer and never feeds back into the simulation.
  */
 import { CAMERA } from '@boxhead/shared';
+
+export interface Bounds {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
 
 export class Camera {
   x = 0;
@@ -23,8 +30,8 @@ export class Camera {
   constructor(
     public viewWidth: number,
     public viewHeight: number,
-    private readonly worldWidth: number,
-    private readonly worldHeight: number,
+    /** The area the camera may look at, in world pixels. */
+    private readonly bounds: Bounds,
   ) {}
 
   /**
@@ -34,7 +41,7 @@ export class Camera {
    * The zoom covers the canvas rather than fitting inside it: taking the larger
    * of the two axis ratios means a wide window shows more arena horizontally
    * instead of letterboxing the map into the middle of the screen. The targets
-   * are also capped by the map, so a small arena is never zoomed out past its
+   * are also capped by the arena, so a small one is never zoomed out past its
    * own edges.
    */
   resize(
@@ -43,8 +50,8 @@ export class Camera {
     targetWorldWidth: number,
     targetWorldHeight: number,
   ): void {
-    const zoomX = canvasWidth / Math.min(this.worldWidth, targetWorldWidth);
-    const zoomY = canvasHeight / Math.min(this.worldHeight, targetWorldHeight);
+    const zoomX = canvasWidth / Math.min(this.bounds.w, targetWorldWidth);
+    const zoomY = canvasHeight / Math.min(this.bounds.h, targetWorldHeight);
     this.zoom = Math.max(zoomX, zoomY);
     this.viewWidth = canvasWidth / this.zoom;
     this.viewHeight = canvasHeight / this.zoom;
@@ -81,15 +88,16 @@ export class Camera {
   }
 
   private clamp(): void {
+    const b = this.bounds;
     const halfW = this.viewWidth / 2;
     const halfH = this.viewHeight / 2;
     // When the arena is smaller than the view, centre it rather than clamping.
-    this.x = this.worldWidth <= this.viewWidth
-      ? this.worldWidth / 2
-      : Math.max(halfW, Math.min(this.worldWidth - halfW, this.x));
-    this.y = this.worldHeight <= this.viewHeight
-      ? this.worldHeight / 2
-      : Math.max(halfH, Math.min(this.worldHeight - halfH, this.y));
+    this.x = b.w <= this.viewWidth
+      ? b.x + b.w / 2
+      : Math.max(b.x + halfW, Math.min(b.x + b.w - halfW, this.x));
+    this.y = b.h <= this.viewHeight
+      ? b.y + b.h / 2
+      : Math.max(b.y + halfH, Math.min(b.y + b.h - halfH, this.y));
   }
 
   /** Resolve the drawing position for this frame. */

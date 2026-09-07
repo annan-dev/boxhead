@@ -1,0 +1,312 @@
+[
+  {
+    "id": 174,
+    "name": "sound_174",
+    "format": "mp3",
+    "rate": 22050,
+    "bits": 16,
+    "channels": 1,
+    "sampleCount": 24201,
+    "bytes": 6112
+  },
+  {
+    "id": 175,
+    "name": "sound_175",
+    "format": "mp3",
+    "rate": 44100,
+    "bits": 16,
+    "channels": 1,
+    "sampleCount": 17408,
+    "bytes": 4700
+  },
+  {
+    "id": 184,
+    "name": "sound_184",
+    "format": "mp3",
+    "rate": 11025,
+    "bits": 16,
+    "channels": 1,
+    "sampleCount": 9053,
+    "bytes": 2602
+  },
+  {
+    "id": 192,
+    "name": "sound_192",
+    "format": "mp3",
+    "rate": 22050,
+    "bits": 16,
+    "channels": 1,
+    "sampleCount": 94718,
+    "bytes": 21972
+  },
+  {
+    "id": 193,
+    "name": "sound_193",
+    "format": "mp3",
+    "rate": 22050,
+    "bits": 16,
+    "channels": 1,
+    "sampleCount": 13173,
+    "bytes": 3382
+  },
+  {
+    "id": 539,
+    "name": "Creature.HitFloor.wav",
+    "format": "mp3",
+    "rate": 44100,
+    "bits": 16,
+    "channels": 1,
+    "sampleCount": 13323,
+    "bytes": 3122
+  },
+  {
+    "id": 540,
+    "name": "Creature.Player.Scream.1.wav",
+    "format": "mp3",
+    "rate": 44100,
+    "bits": 16,
+    "channels": 1,
+    "sampleCount": 33024,
+    "bytes": 6658
+  },
+  {
+    "id": 541,
+    "name": "Creature.Player.Scream.2.wav",
+    "format": "mp3",
+    "rate": 44100,
+    "bits": 16,
+    "channels": 1,
+    "sampleCount": 13909,
+    "bytes": 3122
+  },
+  {
+    "id": 542,
+    "name": "Creature.Zombie.Ambience.1.wav",
+    "format": "mp3",
+    "rate": 44100,
+    "bits": 16,
+    "channels": 1,
+    "sampleCount": 63984,
+    "bytes": 12274
+  },
+  {
+    "id": 543,
+    "name": "Creature.Zombie.Ambience.2.wav",
+    "format": "mp3",
+    "rate": 44100,
+    "bits": 16,
+    "channels": 1,
+    "sampleCount": 253983,
+    "bytes": 46386
+  },
+  {
+    "id": 544,
+    "name": "Creature.Zombie.Ambience.3.wav",
+    "format": "mp3",
+    "rate": 44100,
+    "bits": 16,
+    "channels": 1,
+    "sampleCount": 128716,
+    "bytes": 23922
+  },
+  {
+    "id": 545,
+    "name": "Creature.Zombie.Ambience.4.wav",
+    "format": "mp3",
+    "rate": 44100,
+    "bits": 16,
+    "channels": 1,
+    "sampleCount": 109267,
+    "bytes": 20386
+  },
+  {
+    "id": 546,
+    "name": "Creature.Zombie.Attack.wav",
+    "format": "mp3",
+    "rate": 44100,
+    "bits": 16,
+    "channels": 1,
+    "sampleCount": 39529,
+    "bytes": 7698
+  },
+  {
+    "id": 547,
+    "name": "Creature.Zombie.Hit.wav",
+    "format": "mp3",
+    "rate": 44100,
+    "bits": 16,
+    "channels": 1,
+    "sampleCount": 38361,
+    "bytes": 7490
+  },
+  {
+    "id": 548,
+    "name": "Effect.Explosion.wav",
+    "format": "mp3",
+    "rate": 44100,
+    "bits": 16,
+    "channels": 1,
+    "sampleCount": 26061,
+    "bytes": 6788
+  },
+  {
+    "id": 549,
+    "name": "Object.Barrel.Place.wav",
+    "format": "mp3",
+    "rate": 44100,
+    "bits": 16,
+    "channels": 1,
+    "sampleCount": 9106,
+    "bytes": 2290
+  },
+  {
+    "id": 550,
+    "name": "Object.Mine.Detonate.wav",
+    "format": "mp3",
+    "rate": 44100,
+    "bits": 16,
+    "channels": 1,
+    "sampleCount": 44471,
+    "bytes": 8738
+  },
+  {
+    "id": 551,
+    "name": "Object.Pickup.wav",
+    "format": "mp3",
+    "rate": 44100,
+    "bits": 16,
+    "channels": 1,
+    "sampleCount": 72676,
+    "bytes": 13730
+  },
+  {
+    "id": 552,
+    "name": "Shot.Grenade.Bounce.wav",
+    "format": "mp3",
+    "rate": 44100,
+    "bits": 16,
+    "channels": 1,
+    "sampleCount": 5617,
+    "bytes": 1666
+  },
+  {
+    "id": 553,
+    "name": "Shot.HitWall.1.wav",
+    "format": "mp3",
+    "rate": 44100,
+    "bits": 16,
+    "channels": 1,
+    "sampleCount": 13001,
+    "bytes": 2914
+  },
+  {
+    "id": 554,
+    "name": "Shot.HitWall.2.wav",
+    "format": "mp3",
+    "rate": 44100,
+    "bits": 16,
+    "channels": 1,
+    "sampleCount": 3226,
+    "bytes": 1250
+  },
+  {
+    "id": 555,
+    "name": "Shot.HitWall.3.wav",
+    "format": "mp3",
+    "rate": 44100,
+    "bits": 16,
+    "channels": 1,
+    "sampleCount": 7328,
+    "bytes": 1874
+  },
+  {
+    "id": 556,
+    "name": "Shot.Rocket.Fire.wav",
+    "format": "mp3",
+    "rate": 44100,
+    "bits": 16,
+    "channels": 1,
+    "sampleCount": 43275,
+    "bytes": 8530
+  },
+  {
+    "id": 557,
+    "name": "Weapon.Mine.Place.wav",
+    "format": "mp3",
+    "rate": 44100,
+    "bits": 16,
+    "channels": 1,
+    "sampleCount": 10191,
+    "bytes": 2498
+  },
+  {
+    "id": 558,
+    "name": "Weapon.Pistol.Fire.wav",
+    "format": "mp3",
+    "rate": 44100,
+    "bits": 16,
+    "channels": 1,
+    "sampleCount": 25638,
+    "bytes": 5202
+  },
+  {
+    "id": 559,
+    "name": "Weapon.Railgun.Fire.wav",
+    "format": "mp3",
+    "rate": 44100,
+    "bits": 16,
+    "channels": 1,
+    "sampleCount": 31514,
+    "bytes": 6242
+  },
+  {
+    "id": 560,
+    "name": "Weapon.Rocket.Fire.wav",
+    "format": "mp3",
+    "rate": 44100,
+    "bits": 16,
+    "channels": 1,
+    "sampleCount": 34396,
+    "bytes": 6866
+  },
+  {
+    "id": 561,
+    "name": "Weapon.ShotGun.Fire.wav",
+    "format": "mp3",
+    "rate": 44100,
+    "bits": 16,
+    "channels": 1,
+    "sampleCount": 54434,
+    "bytes": 10402
+  },
+  {
+    "id": 562,
+    "name": "Weapon.UZI.Fire.wav",
+    "format": "mp3",
+    "rate": 44100,
+    "bits": 16,
+    "channels": 1,
+    "sampleCount": 11806,
+    "bytes": 2706
+  },
+  {
+    "id": 563,
+    "name": "World.End.wav",
+    "format": "mp3",
+    "rate": 22050,
+    "bits": 16,
+    "channels": 2,
+    "sampleCount": 80671,
+    "bytes": 22622
+  },
+  {
+    "id": 564,
+    "name": "CLICK.wav",
+    "format": "mp3",
+    "rate": 22050,
+    "bits": 16,
+    "channels": 1,
+    "sampleCount": 2082,
+    "bytes": 1042
+  }
+]

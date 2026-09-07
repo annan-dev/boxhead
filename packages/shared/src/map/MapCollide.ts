@@ -5,13 +5,33 @@
  * keeps its tangential speed instead of sticking. That is the difference
  * between a crowd that flows around a barricade and one that piles onto it.
  */
-import type { GameMap } from './GameMap.js';
+import { Tile, type GameMap } from './GameMap.js';
 
 export interface MoveResult {
   x: number;
   y: number;
   hitX: boolean;
   hitY: boolean;
+}
+
+/** True when a circle overlaps one specific cell's box. */
+export function circleOverlapsCell(
+  map: GameMap,
+  x: number,
+  y: number,
+  radius: number,
+  cx: number,
+  cy: number,
+): boolean {
+  const cell = map.cell;
+  // Nearest point on the cell box to the circle centre.
+  const left = cx * cell;
+  const top = cy * cell;
+  const nearestX = Math.max(left, Math.min(x, left + cell));
+  const nearestY = Math.max(top, Math.min(y, top + cell));
+  const dx = x - nearestX;
+  const dy = y - nearestY;
+  return dx * dx + dy * dy < radius * radius;
 }
 
 /** True when a circle overlaps any blocked cell. */
@@ -24,14 +44,7 @@ export function circleBlocked(map: GameMap, x: number, y: number, radius: number
   for (let cy = minY; cy <= maxY; cy++) {
     for (let cx = minX; cx <= maxX; cx++) {
       if (!map.isBlocked(cx, cy)) continue;
-      // Nearest point on the cell box to the circle centre.
-      const left = cx * cell;
-      const top = cy * cell;
-      const nearestX = Math.max(left, Math.min(x, left + cell));
-      const nearestY = Math.max(top, Math.min(y, top + cell));
-      const dx = x - nearestX;
-      const dy = y - nearestY;
-      if (dx * dx + dy * dy < radius * radius) return true;
+      if (circleOverlapsCell(map, x, y, radius, cx, cy)) return true;
     }
   }
   return false;
@@ -121,4 +134,31 @@ export function hasLineOfSight(
   y1: number,
 ): boolean {
   return raycast(map, x0, y0, x1, y1) === null;
+}
+
+/**
+ * Sight as the original's creatures have it: only solid map cells block it.
+ * Barricades sit on the cell as objects, which the original's line test
+ * (`mCollide_NonShootable`, solid cells only) does not count, so a devil can
+ * see and fire through a fake wall; the fireball then bursts on it.
+ */
+export function hasSightThroughObjects(
+  map: GameMap,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+): boolean {
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  const length = Math.hypot(dx, dy);
+  if (length === 0) return true;
+  const steps = Math.ceil(length / (map.cell * 0.5));
+  for (let step = 1; step <= steps; step++) {
+    const t = step / steps;
+    const cx = Math.floor((x0 + dx * t) / map.cell);
+    const cy = Math.floor((y0 + dy * t) / map.cell);
+    if (map.tileAt(cx, cy) === Tile.Solid) return false;
+  }
+  return true;
 }

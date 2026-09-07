@@ -10,6 +10,8 @@
  */
 
 /** Concurrency limits per sound, so a chain explosion cannot become a wall of noise. */
+import { assetUrl } from '../assets/AssetSource.js';
+
 const VOICE_LIMITS: Record<string, number> = {
   'Weapon.UZI.Fire': 3,
   'Weapon.Pistol.Fire': 3,
@@ -56,12 +58,13 @@ export class AudioEngine {
     const context = new Ctor();
     this.context = context;
     this.master = context.createGain();
-    this.master.gain.value = this.volume;
+    // Settings may already have been applied before the context existed.
+    this.master.gain.value = this.muted ? 0 : this.volume;
     this.master.connect(context.destination);
 
     const load = async (name: string): Promise<void> => {
       try {
-        const response = await fetch(`${this.basePath}/${encodeURIComponent(name)}.mp3`);
+        const response = await fetch(assetUrl(`${this.basePath}/${encodeURIComponent(name)}.mp3`));
         if (!response.ok) return;
         const bytes = await response.arrayBuffer();
         this.buffers.set(name, await context.decodeAudioData(bytes));

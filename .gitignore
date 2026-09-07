@@ -3,7 +3,6 @@ dist/
 dist-ts/
 *.tsbuildinfo
 
-# Extracted game art is the original author's copyrighted work.
-# It is produced locally from your own SWF and never committed.
-assets/
+# The SWF itself stays out; the art extracted from it is committed so the
+# GitHub Pages build can bake it into the single-file client.
 *.swf

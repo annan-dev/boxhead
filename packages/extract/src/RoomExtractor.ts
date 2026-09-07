@@ -147,6 +147,60 @@ function riseOf(
   return result;
 }
 
+type Polygon = Array<[number, number]>;
+
+/** A path's outline in world pixels; curve control points are dropped. */
+function polygonOf(layer: TextureLayer, path: TextureLayer['paths'][number]): Polygon {
+  const [a, b, c, d, e, f] = layer.matrix;
+  const poly: Polygon = [];
+  for (const cmd of path.commands) {
+    poly.push([(a * cmd.x + c * cmd.y + e) / TWIPS, (b * cmd.x + d * cmd.y + f) / TWIPS]);
+  }
+  return poly;
+}
+
+function polygonArea(poly: Polygon): number {
+  let area = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const [x0, y0] = poly[i]!;
+    const [x1, y1] = poly[(i + 1) % poly.length]!;
+    area += x0 * y1 - x1 * y0;
+  }
+  return Math.abs(area) / 2;
+}
+
+function pointInPolygon(x: number, y: number, poly: Polygon): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i]!;
+    const [xj, yj] = poly[j]!;
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+/**
+ * The ground the arena is painted on: the largest scenery path, plus every
+ * other path in the same colour, so a floor built from several plates is
+ * walkable across all of them.
+ */
+function floorPlates(layers: TextureLayer[]): Polygon[] {
+  let best: { color: number; area: number } | null = null;
+  const candidates: Array<{ color: number; poly: Polygon }> = [];
+  for (const layer of layers) {
+    for (const path of layer.paths) {
+      const poly = polygonOf(layer, path);
+      if (poly.length < 3) continue;
+      const area = polygonArea(poly);
+      candidates.push({ color: path.color, poly });
+      if (!best || area > best.area) best = { color: path.color, area };
+    }
+  }
+  if (!best) return [];
+  const color = best.color;
+  return candidates.filter((c) => c.color === color).map((c) => c.poly);
+}
+
 function transformRect(rect: Rect, m: Matrix): Rect {
   const corners = [
     [rect.xMin, rect.yMin],
@@ -304,10 +358,28 @@ export function extractRoom(options: RoomExtractOptions): ExtractedRoom | null {
 
   // A margin keeps geometry off the very edge of the collision grid.
   const margin = ROOM_CELL;
-  const offsetX = -xMin + margin;
-  const offsetY = -yMin + margin;
-  const width = Math.ceil((xMax - xMin + margin * 2) / ROOM_CELL) * ROOM_CELL;
-  const height = Math.ceil((yMax - yMin + margin * 2) / ROOM_CELL) * ROOM_CELL;
+  let offsetX = -xMin + margin;
+  let offsetY = -yMin + margin;
+
+  // The wall blocks were laid out on the cell grid; the painted floor and the
+  // markers were not, so normalising to their extent leaves the blocks a
+  // fraction of a cell off. A block straddling cells claims all of them, which
+  // fattens every wall and closes one-cell gaps. Shift the arena so the blocks
+  // land back on the grid: take the offset most blocks share.
+  const snap = (values: number[]): number => {
+    if (values.length === 0) return 0;
+    const residues = values.map((v) => ((v % ROOM_CELL) + ROOM_CELL) % ROOM_CELL).sort((a, b) => a - b);
+    const median = residues[Math.floor(residues.length / 2)]!;
+    // Nudge forward onto the grid, never back into the margin.
+    return (ROOM_CELL - median) % ROOM_CELL;
+  };
+  const snapX = snap(blocks.map((block) => block.x + offsetX));
+  const snapY = snap(blocks.map((block) => block.y + offsetY));
+  if (snapX < ROOM_CELL - 0.5) offsetX += snapX;
+  if (snapY < ROOM_CELL - 0.5) offsetY += snapY;
+
+  const width = Math.ceil((xMax + offsetX + margin) / ROOM_CELL) * ROOM_CELL;
+  const height = Math.ceil((yMax + offsetY + margin) / ROOM_CELL) * ROOM_CELL;
   const cols = width / ROOM_CELL;
   const rows = height / ROOM_CELL;
 
@@ -333,16 +405,58 @@ export function extractRoom(options: RoomExtractOptions): ExtractedRoom | null {
     ],
   }));
 
-  // Rasterise the footprints into the collision grid.
+  // Rasterise the footprints into the collision grid. The floor plate is the
+  // arena's real edge: the original keeps bodies on the painted ground, so any
+  // cell whose centre lies off the plate is solid, invisibly.
   const tiles = new Array<number>(cols * rows).fill(0);
+  const plates = floorPlates(shift);
+  if (plates.length > 0) {
+    for (let cy = 0; cy < rows; cy++) {
+      for (let cx = 0; cx < cols; cx++) {
+        const x = cx * ROOM_CELL + ROOM_CELL / 2;
+        const y = cy * ROOM_CELL + ROOM_CELL / 2;
+        if (!plates.some((poly) => pointInPolygon(x, y, poly))) tiles[cy * cols + cx] = 1;
+      }
+    }
+    // A spawn marker must always sit on walkable ground, whatever the art says.
+    for (const list of Object.values(spawns)) {
+      for (const point of list) {
+        const cx = Math.floor(point.x / ROOM_CELL);
+        const cy = Math.floor(point.y / ROOM_CELL);
+        if (cx >= 0 && cy >= 0 && cx < cols && cy < rows) tiles[cy * cols + cx] = 0;
+      }
+    }
+  }
   for (const block of blocks) {
-    const cx0 = Math.max(0, Math.floor(block.x / ROOM_CELL));
-    const cy0 = Math.max(0, Math.floor(block.y / ROOM_CELL));
-    const cx1 = Math.min(cols - 1, Math.ceil((block.x + block.w) / ROOM_CELL) - 1);
-    const cy1 = Math.min(rows - 1, Math.ceil((block.y + block.h) / ROOM_CELL) - 1);
+    // A few pixels of slack: sizes come out of the art at 63.999, and a handful
+    // of pieces were authored a few pixels off the grid. A sliver of overlap
+    // must not claim a whole cell.
+    const slack = 6;
+    const cx0 = Math.max(0, Math.floor((block.x + slack) / ROOM_CELL));
+    const cy0 = Math.max(0, Math.floor((block.y + slack) / ROOM_CELL));
+    const cx1 = Math.min(cols - 1, Math.ceil((block.x + block.w - slack) / ROOM_CELL) - 1);
+    const cy1 = Math.min(rows - 1, Math.ceil((block.y + block.h - slack) / ROOM_CELL) - 1);
     for (let cy = cy0; cy <= cy1; cy++) {
       for (let cx = cx0; cx <= cx1; cx++) tiles[cy * cols + cx] = 1;
     }
+  }
+
+  // The painted floor's extent; the camera is held inside it.
+  let floorBounds = { x: 0, y: 0, w: width, h: height };
+  if (plates.length > 0) {
+    let fx0 = Infinity;
+    let fy0 = Infinity;
+    let fx1 = -Infinity;
+    let fy1 = -Infinity;
+    for (const poly of plates) {
+      for (const [px, py] of poly) {
+        if (px < fx0) fx0 = px;
+        if (px > fx1) fx1 = px;
+        if (py < fy0) fy0 = py;
+        if (py > fy1) fy1 = py;
+      }
+    }
+    floorBounds = { x: fx0, y: fy0, w: fx1 - fx0, h: fy1 - fy0 };
   }
 
   const floor: SpriteFrame = { layers: shift };
@@ -358,6 +472,7 @@ export function extractRoom(options: RoomExtractOptions): ExtractedRoom | null {
     tiles,
     blocks: blocks.map(({ rect: _rect, ...block }) => block),
     floor,
+    floorBounds,
     spawns,
   };
 }

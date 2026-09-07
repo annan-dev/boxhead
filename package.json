@@ -10,8 +10,12 @@
     "dev": "npm run -w @boxhead/client dev",
     "build": "npm run -w @boxhead/shared build && npm run -w @boxhead/client build",
     "server": "npm run -w @boxhead/server start",
+    "start": "npm run -w @boxhead/server start",
+    "build:single": "npm run -w @boxhead/client build:single",
     "typecheck": "tsc -b",
-    "test": "node --test packages/*/test/*.test.js"
+    "pretest": "tsc -b",
+    "test": "node --import tsx --test \"packages/**/test/*.test.ts\"",
+    "bench": "tsx packages/shared/test/bench.ts"
   },
   "devDependencies": {
     "typescript": "^5.7.2",

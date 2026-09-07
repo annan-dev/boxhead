@@ -16,9 +16,12 @@
  * band joining that back down to the ground for the front.
  */
 import {
+  CHARACTERS,
   Tile,
   WEAPON_RIG,
+  DEATH,
   ENEMIES,
+  FAKE_WALL_HP,
   type ArtPack,
   type Decal,
   type Enemy,
@@ -26,14 +29,35 @@ import {
   type RoomBlock,
   type SpriteArt,
   type World,
+  EFFECT_TICKS,
 } from '@boxhead/shared';
-import { drawComposed, type TextureSwap } from './VectorModel.js';
+import { drawComposed, type DrawOptions, type Palette, type TextureSwap } from './VectorModel.js';
+import { CHARACTER_PALETTES } from './HeadArt.js';
 import { ClipIndex, composePose, type Layer } from './Rig.js';
-import { drawLayers, drawSprite } from './SpriteRenderer.js';
+import { drawLayers, drawSprite, spriteBounds, spriteFrameCount } from './SpriteRenderer.js';
 import type { Camera } from './Camera.js';
 
 /** Model units to world pixels. Characters stand about 30px tall. */
 const MODEL_SCALE = 0.26;
+
+/**
+ * A character pose rendered once at the current zoom. Puppets are hundreds
+ * of polygons each; with a wave on screen, re-tracing them every frame was the
+ * single biggest cost in the renderer. Drawing a cached bitmap is one call.
+ */
+interface CachedPose {
+  canvas: HTMLCanvasElement;
+  /** Top-left of the bitmap relative to the character origin, in world units. */
+  offsetX: number;
+  offsetY: number;
+  /** Bitmap size in world units, so it lands at exactly 1:1 device pixels. */
+  width: number;
+  height: number;
+}
+/** Enough for every creature, direction, frame and skin on screen at once. */
+const POSE_CACHE_LIMIT = 1200;
+/** Device pixels of slack around a cached pose, for outlines and rounding. */
+const POSE_PAD = 3;
 
 /** Warm stone, to sit against the arena's cream floor. */
 const BLOCK_COLORS = {
@@ -61,14 +85,21 @@ export class GameRenderer {
   private readonly floor: HTMLCanvasElement;
   private readonly floorCtx: CanvasRenderingContext2D;
   private readonly clips: ClipIndex;
-  private stampedDecals = 0;
+  /** Sequence number of the newest decal already on the floor layer. */
+  private stampedSeq = 0;
   private readonly items: DrawItem[] = [];
   private readonly swapCache = new Map<string, TextureSwap>();
+  private readonly poseCache = new Map<string, CachedPose | null>();
+  /** Zoom the pose cache was rendered at; a change throws it away. */
+  private poseCacheZoom = 0;
+  private zoom = 1;
   private ctx: CanvasRenderingContext2D | null = null;
 
   constructor(
     private readonly world: World,
     private readonly pack: ArtPack,
+    /** Whose placement outline to draw; -1 for nobody's. */
+    private readonly localPlayerIndex = 0,
   ) {
     this.clips = new ClipIndex(pack.clips);
     this.floor = document.createElement('canvas');
@@ -87,16 +118,17 @@ export class GameRenderer {
   /** Paint the arena's ground once; from here it is only ever stamped into. */
   private paintFloor(): void {
     const ctx = this.floorCtx;
-    // A base colour behind the art, so any gap outside its extent still reads
-    // as ground rather than a hole.
-    ctx.fillStyle = '#cfc4ad';
-    ctx.fillRect(0, 0, this.floor.width, this.floor.height);
-
     const layers = this.world.map.floorLayers;
     if (layers && layers.length > 0) {
+      // Beyond the painted floor is nothing: the original showed black there,
+      // and the camera is held inside the floor so it is rarely seen anyway.
+      ctx.fillStyle = '#0d0f12';
+      ctx.fillRect(0, 0, this.floor.width, this.floor.height);
       drawLayers(ctx, layers);
       this.grainFloor();
     } else {
+      ctx.fillStyle = '#cfc4ad';
+      ctx.fillRect(0, 0, this.floor.width, this.floor.height);
       // Text-authored arenas have no art; give them a plain tiled ground.
       const cell = this.world.map.cell;
       ctx.strokeStyle = 'rgba(0,0,0,0.06)';
@@ -166,10 +198,13 @@ export class GameRenderer {
   }
 
   private stampDecals(): void {
+    // The sim recycles old marks once it hits its cap, so indices shift;
+    // sequence numbers say what is new regardless.
     const decals = this.world.decals;
-    if (this.stampedDecals > decals.length) this.stampedDecals = 0;
-    for (let i = this.stampedDecals; i < decals.length; i++) this.stampDecal(decals[i]!);
-    this.stampedDecals = decals.length;
+    let start = decals.length;
+    while (start > 0 && decals[start - 1]!.seq > this.stampedSeq) start -= 1;
+    for (let i = start; i < decals.length; i++) this.stampDecal(decals[i]!);
+    if (decals.length > 0) this.stampedSeq = decals[decals.length - 1]!.seq;
   }
 
   private stampDecal(decal: Decal): void {
@@ -178,8 +213,8 @@ export class GameRenderer {
     if (decal.type === 'scorch') {
       const art = this.sprite('Effect.ScorchMark');
       if (art) {
-        ctx.globalAlpha = 0.85;
-        drawSprite(ctx, art, decal.x, decal.y, { scale: decal.size / 60 });
+        // The original stamps its scorch at a fixed size whatever the blast.
+        drawSprite(ctx, art, decal.x, decal.y, { rotation: decal.seed * Math.PI * 2 });
       } else {
         ctx.globalCompositeOperation = 'multiply';
         ctx.fillStyle = 'rgba(40,36,34,0.8)';
@@ -191,13 +226,17 @@ export class GameRenderer {
       const art = this.sprite('Effect.WallMark');
       if (art) drawSprite(ctx, art, decal.x, decal.y, { scale: 0.7, alpha: 0.8 });
     } else {
-      // Alternate the two blood shapes and jitter them, so no two marks match.
-      const art = this.sprite(decal.seed > 0.5 ? 'Effect.BloodPool' : 'Effect.BloodSplat');
+      // One of the four splat shapes, sized to the drop, rotated at random and
+      // squashed a little to lie on the floor rather than stand on it.
+      const art = this.sprite('Effect.BloodSplat');
       if (art) {
-        drawSprite(ctx, art, decal.x, decal.y, {
-          scale: (decal.size / 26) * (0.7 + decal.seed * 0.6),
+        ctx.translate(decal.x, decal.y);
+        ctx.scale(1, 0.8);
+        drawSprite(ctx, art, 0, 0, {
+          frame: Math.floor(decal.seed * 4),
+          scale: decal.size / 25,
           rotation: decal.seed * Math.PI * 2,
-          alpha: 0.9,
+          alpha: 0.85,
         });
       } else {
         ctx.fillStyle = decal.color;
@@ -224,11 +263,19 @@ export class GameRenderer {
     return swap;
   }
 
-  /** Direction 0 in the source art faces west, so the angle is rotated first. */
+  /**
+   * Map a facing angle to a baked direction frame.
+   *
+   * Measured against the art itself: direction k of an n-way clip faces
+   * (k + 1) * 360/n degrees past west, so frame 3 of a 16-way clip looks
+   * exactly north and frame 11 exactly south. Rounding to the nearest frame
+   * and stepping back one index is what lines the puppet up with the aim.
+   */
   private directionIndex(angle: number, directions: number): number {
     if (directions <= 0) return 0;
     const turns = angle / (Math.PI * 2) + 0.5;
-    return ((Math.round(turns * directions) % directions) + directions) % directions;
+    const nearest = Math.round(turns * directions) - 1;
+    return ((nearest % directions) + directions) % directions;
   }
 
   private frameIndex(clip: { sequence: number[] | null; frames: number }, step: number): number {
@@ -264,6 +311,94 @@ export class GameRenderer {
     ctx.ellipse(0, 0, radius * 1.15, radius * 0.62, 0, 0, Math.PI * 2);
     ctx.fillStyle = 'rgba(0,0,0,0.3)';
     ctx.fill();
+  }
+
+  private poseKey(layers: Layer[], skin: string, scale: number, flash: boolean): string {
+    let key = '';
+    for (const layer of layers) key += `${layer.clip.id}/${layer.direction}/${layer.frame}|`;
+    return `${key}${skin}#${scale}${flash ? '#w' : ''}`;
+  }
+
+  /**
+   * Fetch a pose bitmap, rendering it on first use. `flash` renders the white
+   * hit-flash silhouette instead of the textured character.
+   */
+  private cachedPose(
+    key: string,
+    layers: Layer[],
+    scale: number,
+    swap: TextureSwap,
+    flash: boolean,
+    palette?: Palette,
+  ): CachedPose | null {
+    if (this.poseCacheZoom !== this.zoom) {
+      this.poseCache.clear();
+      this.poseCacheZoom = this.zoom;
+    }
+    const hit = this.poseCache.get(key);
+    if (hit !== undefined) return hit;
+
+    const composed = composePose(layers);
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    const consider = (poly: number[]): void => {
+      for (let i = 0; i < poly.length - 1; i += 2) {
+        const px = poly[i]!;
+        const py = poly[i + 1]!;
+        if (px < minX) minX = px;
+        if (px > maxX) maxX = px;
+        if (py < minY) minY = py;
+        if (py > maxY) maxY = py;
+      }
+    };
+    for (const { part } of composed.parts) {
+      for (const face of part.faces) consider(face.poly);
+      for (const poly of part.outline) consider(poly);
+      for (const poly of part.shadow) consider(poly);
+    }
+    if (!Number.isFinite(minX)) {
+      this.poseCache.set(key, null);
+      return null;
+    }
+
+    // Device pixels per model unit: the pose is drawn at the size it will show.
+    const px = scale * this.zoom;
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.ceil((maxX - minX) * px) + POSE_PAD * 2;
+    canvas.height = Math.ceil((maxY - minY) * px) + POSE_PAD * 2;
+    const c = canvas.getContext('2d');
+    if (!c) return null;
+    c.translate(POSE_PAD - minX * px, POSE_PAD - minY * px);
+    const options: DrawOptions = flash
+      ? { scale: px, clipFallback: 0xffffff }
+      : { scale: px, art: { textures: this.pack.textures, swap }, ...(palette ? { palette } : {}) };
+    drawComposed(c, composed.parts, options);
+
+    const entry: CachedPose = {
+      canvas,
+      offsetX: minX * scale - POSE_PAD / this.zoom,
+      offsetY: minY * scale - POSE_PAD / this.zoom,
+      width: canvas.width / this.zoom,
+      height: canvas.height / this.zoom,
+    };
+    if (this.poseCache.size >= POSE_CACHE_LIMIT) {
+      // Drop the oldest entry; insertion order is what Map gives us.
+      const oldest = this.poseCache.keys().next().value;
+      if (oldest !== undefined) this.poseCache.delete(oldest);
+    }
+    this.poseCache.set(key, entry);
+    return entry;
+  }
+
+  private drawPose(ctx: CanvasRenderingContext2D, pose: CachedPose): void {
+    ctx.drawImage(pose.canvas, pose.offsetX, pose.offsetY, pose.width, pose.height);
+  }
+
+  /** Bitmaps rendered for the pose cache so far, for the stats overlay. */
+  get cachedPoses(): number {
+    return this.poseCache.size;
   }
 
   // ---- arena --------------------------------------------------------------
@@ -323,6 +458,9 @@ export class GameRenderer {
     }
 
     // Player-built barricades live in the tile grid rather than the layout.
+    // The original's wall symbol carries ten damage states, so a wall visibly
+    // crumbles as zombies chew it.
+    const wallArt = this.sprite('Object.Wall');
     const cell = map.cell;
     const minCx = Math.max(0, Math.floor(left / cell));
     const maxCx = Math.min(map.cols - 1, Math.ceil(right / cell));
@@ -332,7 +470,7 @@ export class GameRenderer {
       for (let cx = minCx; cx <= maxCx; cx++) {
         if (map.tileAt(cx, cy) !== Tile.Breakable) continue;
         const hp = map.integrity[map.index(cx, cy)] ?? 0;
-        const damage = 1 - Math.min(1, hp / 300);
+        const damage = 1 - Math.min(1, hp / FAKE_WALL_HP);
         const block: RoomBlock = {
           symbol: 'Object.Wall',
           x: cx * cell,
@@ -343,10 +481,27 @@ export class GameRenderer {
         };
         this.items.push({
           sortY: block.y + block.h,
-          render: () => this.drawBlock(block, BREAKABLE_COLORS, damage),
+          render: () =>
+            wallArt
+              ? this.drawBarricade(wallArt, cx, cy, damage)
+              : this.drawBlock(block, BREAKABLE_COLORS, damage),
         });
       }
     }
+  }
+
+  /** The original wall symbol, scaled to the cell and stepped through its damage frames. */
+  private drawBarricade(art: SpriteArt, cx: number, cy: number, damage: number): void {
+    const ctx = this.ctx!;
+    const cell = this.world.map.cell;
+    const b = spriteBounds(art);
+    const scale = cell / b.w;
+    const frames = spriteFrameCount(art);
+    const frame = Math.min(frames - 1, Math.floor(damage * frames));
+    // Anchor the art's footprint to the cell: centred, sitting on the cell's bottom edge.
+    const x = cx * cell + cell / 2 - (b.x + b.w / 2) * scale;
+    const y = cy * cell + cell - (b.y + b.h) * scale;
+    drawSprite(ctx, art, x, y, { scale, frame });
   }
 
   // ---- creatures ----------------------------------------------------------
@@ -357,20 +512,22 @@ export class GameRenderer {
     const step = Math.floor(player.animStep / 5);
     const anim = this.animFor(player, '');
 
+    const character = CHARACTERS.find((c) => c.id === player.characterId);
     const layers: Layer[] = [];
     this.addLayer(layers, 'Player', anim, player.angle, step);
+    // Only Bambo has his own head in the art; the others share the default.
+    if (character?.headGroup) this.addLayer(layers, character.headGroup, anim, player.angle, step);
     if (anim === 'Stand' || anim === 'Walk') {
       this.addLayer(layers, WEAPON_RIG[player.current], anim, player.angle, step);
     }
     if (layers.length === 0) return;
 
-    const skin = player.characterId === 'bambo' ? 'Bambo'
-      : player.characterId === 'bond' ? 'Bond'
-      : player.characterId === 'gijoe' ? 'GIJOE'
-      : 'Swat';
+    const skin = character?.skin ?? 'Swat';
     const swap = this.swapFor(skin);
+    const palette = CHARACTER_PALETTES[player.characterId];
     const fading = player.state === 'dead' ? 0.35 : 1;
     const flashing = player.invincible > 0 && Math.floor(player.invincible / 4) % 2 === 0;
+    const key = this.poseKey(layers, skin, MODEL_SCALE, false);
 
     this.items.push({
       sortY: y,
@@ -380,11 +537,8 @@ export class GameRenderer {
         ctx.translate(x, y);
         ctx.globalAlpha = flashing ? 0.45 : fading;
         this.drawShadow(ctx, player.radius);
-        const composed = composePose(layers);
-        drawComposed(ctx, composed.parts, {
-          scale: MODEL_SCALE,
-          art: { textures: this.pack.textures, swap },
-        });
+        const pose = this.cachedPose(key, layers, MODEL_SCALE, swap, false, palette);
+        if (pose) this.drawPose(ctx, pose);
         ctx.globalAlpha = 1;
         ctx.restore();
       },
@@ -409,6 +563,8 @@ export class GameRenderer {
     const swap = this.swapFor(def.skin);
     const scale = MODEL_SCALE * def.drawScale;
     const hurt = enemy.hitTicks > 5;
+    const key = this.poseKey(layers, def.skin, scale, false);
+    const flashKey = hurt ? this.poseKey(layers, def.skin, scale, true) : '';
 
     this.items.push({
       sortY: y,
@@ -416,24 +572,65 @@ export class GameRenderer {
         const ctx = this.ctx!;
         ctx.save();
         ctx.translate(x, y);
-        if (enemy.state === 'dying') ctx.globalAlpha = Math.max(0, 1 - enemy.stateTicks / 45);
+        // The corpse lies at full strength and fades away over its last second.
+        if (enemy.state === 'dead') {
+          const left = DEATH.corpseTicks - enemy.stateTicks;
+          ctx.globalAlpha = Math.max(0, Math.min(1, left / DEATH.fadeTicks));
+        }
         this.drawShadow(ctx, enemy.radius * def.drawScale);
-        const composed = composePose(layers);
-        drawComposed(ctx, composed.parts, {
-          scale,
-          art: { textures: this.pack.textures, swap },
-        });
+        const pose = this.cachedPose(key, layers, scale, swap, false);
+        if (pose) this.drawPose(ctx, pose);
+        if (!isZombie && enemy.windup > 0 && enemy.state === 'alive') {
+          // The devil winds up with the fireball already in hand, its clip
+          // cycling, as the original's held-fireball effect does.
+          const held = this.sprite('Effect.FireBall');
+          if (held) {
+            const reach = enemy.radius * 0.9;
+            drawSprite(
+              ctx,
+              held,
+              Math.cos(enemy.angle) * reach,
+              Math.sin(enemy.angle) * reach * 0.6 - 18,
+              { frame: Math.floor(this.world.tick / 2) + enemy.id },
+            );
+          }
+        }
         if (hurt) {
           // A brief white flash on impact: the clearest possible hit feedback.
-          ctx.globalCompositeOperation = 'lighter';
-          ctx.globalAlpha = 0.3;
-          drawComposed(ctx, composed.parts, { scale, clipFallback: 0xffffff });
-          ctx.globalCompositeOperation = 'source-over';
+          const flash = this.cachedPose(flashKey, layers, scale, swap, true);
+          if (flash) {
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.globalAlpha = 0.3;
+            this.drawPose(ctx, flash);
+            ctx.globalCompositeOperation = 'source-over';
+          }
         }
         ctx.globalAlpha = 1;
         ctx.restore();
       },
     });
+  }
+
+  /**
+   * The cell the local player's barrel, mine, charge pack or wall would land
+   * in, drawn as a pale square on the floor, the way Minecraft shows the
+   * block under the cursor. Red-tinted when the game would refuse it.
+   */
+  private drawPlacementOutline(ctx: CanvasRenderingContext2D): void {
+    const player = this.world.players[this.localPlayerIndex];
+    if (!player || player.state !== 'alive') return;
+    const target = this.world.placementTarget(player);
+    if (!target) return;
+    const cell = this.world.map.cell;
+    const x = target.cx * cell;
+    const y = target.cy * cell;
+    ctx.save();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = target.ok ? 'rgba(255,255,255,0.75)' : 'rgba(226,0,26,0.7)';
+    ctx.fillStyle = target.ok ? 'rgba(255,255,255,0.16)' : 'rgba(226,0,26,0.14)';
+    ctx.fillRect(x + 1, y + 1, cell - 2, cell - 2);
+    ctx.strokeRect(x + 1.5, y + 1.5, cell - 3, cell - 3);
+    ctx.restore();
   }
 
   // ---- objects and effects ------------------------------------------------
@@ -460,19 +657,12 @@ export class GameRenderer {
           ctx.save();
           ctx.translate(x, y);
           this.drawShadow(ctx, placeable.radius * 0.9);
-          if (art) drawSprite(ctx, art, 0, 0, { scale: 1, frame });
-          // The barrel symbol is only a silhouette in the source art, so the
-          // drum itself is drawn here as a lit cylinder.
-          if (type === 'barrel') {
+          if (art) {
+            drawSprite(ctx, art, 0, 0, { scale: 1, frame });
+          } else if (type === 'barrel') {
+            // No art pack: a plain drum so the object still reads.
             ctx.fillStyle = '#8d2a1e';
             ctx.fillRect(-11, -27, 22, 27);
-            ctx.fillStyle = '#b3402c';
-            ctx.fillRect(-11, -27, 22, 4);
-            ctx.fillStyle = '#5e1a12';
-            ctx.fillRect(7, -27, 4, 27);
-            ctx.fillStyle = '#d8cda2';
-            ctx.fillRect(-11, -19, 22, 3);
-            ctx.fillRect(-11, -9, 22, 3);
             ctx.strokeStyle = 'rgba(0,0,0,0.45)';
             ctx.lineWidth = 1;
             ctx.strokeRect(-10.5, -26.5, 21, 26);
@@ -482,26 +672,24 @@ export class GameRenderer {
       });
     }
 
+    // The original's crate, drawn as-is: one symbol for every pickup, sitting
+    // still on the floor with its own painted shadow.
     const pickupArt = this.sprite('Object.Pickup');
     for (const pickup of this.world.pickups) {
-      if (!pickup.alive) continue;
+      if (!pickup.alive || pickup.hiddenUntil > 0) continue;
       const { x, y } = pickup;
-      const bob = Math.sin(this.world.tick * 0.08 + x) * 1.8;
       this.items.push({
         sortY: y,
         render: () => {
           const ctx = this.ctx!;
           ctx.save();
           ctx.translate(x, y);
-          this.drawShadow(ctx, 9);
-          ctx.translate(0, bob - 6);
           if (pickupArt) {
-            // Health boxes are tinted green so they read apart at a glance.
-            const options =
-              pickup.type === 'life'
-                ? { scale: 0.85, tint: { color: '#25c05a', strength: 0.75 } }
-                : { scale: 0.85 };
-            drawSprite(ctx, pickupArt, 0, 0, options);
+            drawSprite(ctx, pickupArt, 0, 0, { scale: 1 });
+          } else {
+            this.drawShadow(ctx, 9);
+            ctx.fillStyle = '#c83a1c';
+            ctx.fillRect(-9, -14, 18, 14);
           }
           ctx.restore();
         },
@@ -514,6 +702,12 @@ export class GameRenderer {
     const explosion = this.sprite('Effect.Explosion');
     const smoke = this.sprite('Effect.SmokeCloud');
     const bulletHit = this.sprite('Effect.BulletHit');
+    const bloodSpray = this.sprite('Effect.BloodHitBack');
+    const rocketSmoke = this.sprite('Effect.RocketSmoke');
+    // The original plays a clip once over an effect's life, one frame per
+    // step; this maps that onto whatever frames the symbol has.
+    const frameAt = (art: SpriteArt, progress: number): number =>
+      Math.min(art.frames.length - 1, Math.floor(progress * art.frames.length));
 
     for (const effect of this.world.effects) {
       if (!effect.alive) continue;
@@ -534,27 +728,79 @@ export class GameRenderer {
           break;
         }
         case 'muzzle': {
-          const flash = this.sprite(effect.seed > 0.5 ? 'Pistol.MuzzleFlash' : 'UZI.MuzzleFlash');
-          if (flash) {
-            ctx.globalAlpha = 1 - progress;
-            drawSprite(ctx, flash, 0, -8, { scale: 0.22, rotation: effect.angle });
+          // Each weapon family has its own flash in the source art, drawn at
+          // full size along the aim for a single original frame.
+          const name =
+            effect.variant === 'shotgun' ? 'Shotgun.MuzzleFlash'
+            : effect.variant === 'railgun' ? 'Railgun.MuzzleFlash'
+            : effect.variant === 'uzi' ? 'UZI.MuzzleFlash'
+            : 'Pistol.MuzzleFlash';
+          const flash = this.sprite(name) ?? this.sprite('Pistol.MuzzleFlash');
+          if (flash) drawSprite(ctx, flash, 0, -8, { rotation: effect.angle });
+          break;
+        }
+        case 'fireball': {
+          // A devil's shot landing: a short flare where it struck.
+          const art = this.sprite('Effect.FireBall') ?? explosion;
+          if (art) {
+            drawSprite(ctx, art, 0, -8, {
+              scale: (0.8 + progress * 0.8) * (effect.size / 18),
+              alpha: 1 - progress,
+              frame: Math.floor(this.world.tick / 2),
+            });
           }
           break;
         }
         case 'smoke': {
-          if (smoke) {
-            ctx.globalAlpha = (1 - progress) * 0.5;
-            drawSprite(ctx, smoke, 0, -6 - progress * 10, { scale: 0.16 + progress * 0.14 });
+          // The original's smoke cloud, its clip played once.
+          if (smoke) drawSprite(ctx, smoke, 0, -6, { frame: frameAt(smoke, progress) });
+          break;
+        }
+        case 'rocketsmoke': {
+          // A rocket exhaust puff: the clip spreads and thins as it drifts.
+          if (rocketSmoke) {
+            drawSprite(ctx, rocketSmoke, 0, -10, { frame: frameAt(rocketSmoke, progress) });
+          } else {
+            ctx.globalAlpha = (1 - progress) * 0.4;
+            ctx.fillStyle = '#999999';
+            ctx.beginPath();
+            ctx.arc(0, -10, 10 + progress * 45, 0, Math.PI * 2);
+            ctx.fill();
           }
           break;
         }
         case 'blood': {
-          ctx.globalAlpha = (1 - progress) * 0.9;
-          ctx.fillStyle = '#a5121b';
-          for (let i = 0; i < 5; i++) {
-            const angle = effect.seed * 7 + i * 1.4;
-            const distance = progress * effect.size * 2;
-            ctx.fillRect(Math.cos(angle) * distance, Math.sin(angle) * distance - 8, 2.5, 2.5);
+          // The original throws a 75px streak out along the hit, which reads
+          // as a solid red cone. Keep a short, fading trace of it for the
+          // direction, and let a handful of drops carry the rest: they fly
+          // out with the hit, slow down, and fade.
+          if (bloodSpray && progress < 0.5) {
+            drawSprite(ctx, bloodSpray, 0, -8, {
+              frame: frameAt(bloodSpray, progress * 2),
+              rotation: effect.angle,
+              scale: 0.4,
+              alpha: (1 - progress * 2) * 0.8,
+            });
+          }
+          ctx.fillStyle = '#9e1119';
+          const ease = 1 - (1 - progress) * (1 - progress);
+          for (let i = 0; i < 7; i++) {
+            // Per-drop constants from the seed, so each hit looks different
+            // but a drop keeps its own path from frame to frame.
+            const t = (effect.seed * 97 + i * 13.7) % 1;
+            const u = (effect.seed * 61 + i * 7.3) % 1;
+            const angle = effect.angle + (t - 0.5) * 1.1;
+            const reach = 14 + u * 26;
+            const distance = ease * reach;
+            const rise = Math.sin(Math.min(1, progress * 1.6) * Math.PI) * (4 + t * 8);
+            const size = 1.5 + u * 1.5;
+            ctx.globalAlpha = Math.max(0, 1 - progress * 1.15) * 0.9;
+            ctx.fillRect(
+              Math.cos(angle) * distance - size / 2,
+              Math.sin(angle) * distance - 8 - rise - size / 2,
+              size,
+              size,
+            );
           }
           break;
         }
@@ -569,10 +815,8 @@ export class GameRenderer {
           break;
         }
         default: {
-          if (bulletHit) {
-            ctx.globalAlpha = 1 - progress;
-            drawSprite(ctx, bulletHit, 0, -6, { scale: 0.6, rotation: effect.angle });
-          }
+          // A bullet striking a wall: the original's puff, played once.
+          if (bulletHit) drawSprite(ctx, bulletHit, 0, -6, { frame: frameAt(bulletHit, progress) });
         }
       }
       ctx.restore();
@@ -580,32 +824,65 @@ export class GameRenderer {
 
     // Projectiles are live geometry rather than sprites.
     const grenade = this.sprite('Shot.Grenade');
+    const fireball = this.sprite('Effect.FireBall');
+    const rocketArt = this.sprite('Shot.Rocket');
     ctx.save();
     for (const shot of this.world.shots) {
       if (!shot.alive) continue;
-      if (shot.kind === 'railgun') {
-        ctx.globalCompositeOperation = 'lighter';
-        ctx.strokeStyle = 'rgba(150,220,255,0.9)';
-        ctx.lineWidth = 3;
+      if (shot.kind === 'fireball') {
+        // Devil fire: the original cycles the fireball clip a frame a tick.
+        if (fireball) {
+          drawSprite(ctx, fireball, shot.x, shot.y - 10, {
+            frame: Math.floor(this.world.tick / 2) + shot.id,
+          });
+        } else {
+          ctx.fillStyle = 'rgba(255,150,60,0.95)';
+          ctx.beginPath();
+          ctx.arc(shot.x, shot.y - 10, shot.radius, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      } else if (shot.kind === 'railgun') {
+        // The original's rail: a two-pixel violet line at three-quarter alpha.
+        const fade = Math.max(0, Math.min(1, shot.life / EFFECT_TICKS.tracer));
+        ctx.strokeStyle = `rgba(153,102,255,${0.56 * fade})`;
+        ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.moveTo(shot.prevX, shot.prevY - 10);
         ctx.lineTo(shot.x, shot.y - 10);
         ctx.stroke();
-        ctx.globalCompositeOperation = 'source-over';
       } else if (shot.kind === 'grenade' && grenade) {
-        drawSprite(ctx, grenade, shot.x, shot.y - 8, { scale: 1.4, rotation: shot.angle });
+        // A lobbed grenade rises off its ground shadow by its height.
+        ctx.fillStyle = 'rgba(0,0,0,0.25)';
+        ctx.beginPath();
+        ctx.ellipse(shot.x, shot.y, 5, 3, 0, 0, Math.PI * 2);
+        ctx.fill();
+        drawSprite(ctx, grenade, shot.x, shot.y - 4 - shot.z, {
+          scale: 1.4,
+          rotation: shot.angle + this.world.tick * 0.2,
+        });
       } else if (shot.kind === 'rocket') {
-        ctx.save();
-        ctx.translate(shot.x, shot.y - 10);
-        ctx.rotate(shot.angle);
-        ctx.fillStyle = '#d8d2c4';
-        ctx.fillRect(-5, -2.5, 10, 5);
-        ctx.fillStyle = '#b0342a';
-        ctx.fillRect(3, -2.5, 2, 5);
-        ctx.restore();
+        // The original's rocket is a shimmering white cluster, its three-frame
+        // clip cycled a frame a tick and never rotated.
+        if (rocketArt) {
+          drawSprite(ctx, rocketArt, shot.x, shot.y - 10, {
+            frame: Math.floor(this.world.tick / 2) + shot.id,
+          });
+        } else {
+          ctx.save();
+          ctx.translate(shot.x, shot.y - 10);
+          ctx.rotate(shot.angle);
+          ctx.fillStyle = '#d8d2c4';
+          ctx.fillRect(-5, -2.5, 10, 5);
+          ctx.fillStyle = '#b0342a';
+          ctx.fillRect(3, -2.5, 2, 5);
+          ctx.restore();
+        }
       } else {
-        ctx.strokeStyle = shot.ownerId === -2 ? 'rgba(255,150,60,0.95)' : 'rgba(255,236,160,0.92)';
-        ctx.lineWidth = shot.ownerId === -2 ? 4 : 2;
+        // A bullet's tracer: the original's hairline grey at three-quarter
+        // alpha, gone after two of its ticks.
+        const fade = Math.max(0, Math.min(1, shot.life / EFFECT_TICKS.tracer));
+        ctx.strokeStyle = `rgba(204,204,204,${0.75 * fade})`;
+        ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(shot.prevX, shot.prevY - 10);
         ctx.lineTo(shot.x, shot.y - 10);
@@ -618,6 +895,7 @@ export class GameRenderer {
   /** Draw a frame. `alpha` interpolates between the last two simulation steps. */
   draw(ctx: CanvasRenderingContext2D, camera: Camera, alpha: number): void {
     this.ctx = ctx;
+    this.zoom = camera.zoom;
     this.stampDecals();
 
     const world = this.world;
@@ -635,11 +913,14 @@ export class GameRenderer {
 
     // One blit for the whole accumulated floor, however many decals it holds.
     ctx.drawImage(this.floor, 0, 0);
+    this.drawPlacementOutline(ctx);
 
     this.items.length = 0;
     this.queueArena(camera);
     this.queueObjects();
     for (const player of world.players) {
+      // An empty seat on a server is a player nobody is driving; leave it out.
+      if (!player.connected) continue;
       if (camera.isVisible(player.x, player.y)) this.queuePlayer(player, alpha);
     }
     for (const enemy of world.enemies) {
@@ -656,6 +937,20 @@ export class GameRenderer {
       ctx.fillStyle = `rgba(255,240,220,${world.flash * 0.3})`;
       ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
     }
+    if (world.hurt > 0) this.drawHurtVignette(ctx, world.hurt);
     this.ctx = null;
+  }
+
+  /** Red closing in from the edges: taking damage has to be felt, not read. */
+  private drawHurtVignette(ctx: CanvasRenderingContext2D, strength: number): void {
+    const { width, height } = ctx.canvas;
+    const gradient = ctx.createRadialGradient(
+      width / 2, height / 2, Math.min(width, height) * 0.35,
+      width / 2, height / 2, Math.max(width, height) * 0.72,
+    );
+    gradient.addColorStop(0, 'rgba(150,0,0,0)');
+    gradient.addColorStop(1, `rgba(150,0,0,${Math.min(0.75, strength * 0.7)})`);
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, width, height);
   }
 }

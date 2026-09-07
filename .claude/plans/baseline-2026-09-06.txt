@@ -1,0 +1,56 @@
+HEAD d6a9c76f3884f9d2c32af4545e3484b2c2eb3763
+--- status
+ M README.md
+ M package.json
+ M packages/client/src/audio/AudioEngine.ts
+ M packages/client/src/input/Input.ts
+ M packages/client/src/loop/Loop.ts
+ M packages/client/src/main.ts
+ M packages/client/src/render/Camera.ts
+ M packages/client/src/render/GameRenderer.ts
+ M packages/client/src/render/VectorModel.ts
+ M packages/client/src/state/SaveData.ts
+ M packages/client/src/ui/Hud.ts
+ M packages/client/src/ui/Menus.ts
+ M packages/client/vite.config.ts
+ M packages/extract/src/RoomExtractor.ts
+ M packages/extract/src/SpriteExtractor.ts
+ M packages/extract/src/index.ts
+ M packages/extract/src/swf/ShapeDecoder.ts
+ M packages/shared/src/art/ArtTypes.ts
+ M packages/shared/src/data/enemies.ts
+ M packages/shared/src/data/levels.ts
+ M packages/shared/src/data/tuning.ts
+ M packages/shared/src/data/upgrades.ts
+ M packages/shared/src/data/weapons.ts
+ M packages/shared/src/map/GameMap.ts
+ M packages/shared/src/map/MapCollide.ts
+ M packages/shared/src/sim/Snapshot.ts
+ M packages/shared/src/sim/World.ts
+ M packages/shared/src/sim/types.ts
+ M packages/shared/src/spatial/SpatialHash.ts
+ M packages/shared/test/bench.ts
+ M packages/shared/test/sim.test.ts
+?? .claude/plans/
+--- diffhash d519a86df9f4029a5612e57bebea9e1af98eff20
+--- typecheck
+
+> boxhead@0.1.0 typecheck
+> tsc -b
+
+--- test
+✔ a railgun shot runs through every zombie in its path (1.1146ms)
+✔ bodies collide: a zombie cannot stand inside the player (0.3429ms)
+✔ a barrel blocks the player (0.5435ms)
+✔ shooting a barrel blows it up (0.4458ms)
+✔ the run ends on a tick the client can wait out (0.5501ms)
+✔ decals carry increasing sequence numbers past the cap (77.0939ms)
+✔ a snapshot round-trips into an identical world (51.956ms)
+ℹ tests 20
+ℹ suites 0
+ℹ pass 20
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 946.3746

@@ -28,10 +28,25 @@ export class Loop {
   constructor(
     private readonly callbacks: LoopCallbacks,
     /** Milliseconds per simulation step. */
-    private readonly stepMsTarget: number,
+    private stepMsTarget: number,
     /** Steps per frame before the loop declares bankruptcy and drops time. */
     private readonly maxSteps = 5,
   ) {}
+
+  /**
+   * Change how much wall time one simulation step represents. The original's
+   * Slow/Normal/Fast setting does exactly this: it scales the logic rate, so
+   * every timer, speed and fuse scales with it and the simulation itself never
+   * knows.
+   */
+  setStepMs(value: number): void {
+    this.stepMsTarget = Math.max(1, value);
+    this.accumulator = 0;
+  }
+
+  get stepMsTargetValue(): number {
+    return this.stepMsTarget;
+  }
 
   start(): void {
     if (this.running) return;

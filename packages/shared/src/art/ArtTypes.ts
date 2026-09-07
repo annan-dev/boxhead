@@ -143,6 +143,11 @@ export interface ExtractedRoom {
   blocks: RoomBlock[];
   /** Ground art, already positioned in world space. */
   floor: SpriteFrame;
+  /**
+   * Extent of the painted floor in world pixels. Play happens inside it, the
+   * camera never looks past it, and anything outside is void.
+   */
+  floorBounds: { x: number; y: number; w: number; h: number };
   spawns: {
     players: Array<{ x: number; y: number }>;
     zombies: Array<{ x: number; y: number }>;

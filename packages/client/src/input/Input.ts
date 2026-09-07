@@ -42,6 +42,8 @@ export class Input {
   pointerY = 0;
   /** Latched once per step so a tap on a fast display is not lost. */
   private pausePressed = false;
+  /** False while a menu owns the keyboard, so play keys are not intercepted. */
+  private enabled = true;
 
   constructor(private readonly target: HTMLCanvasElement) {
     window.addEventListener('keydown', this.onKeyDown);
@@ -51,19 +53,29 @@ export class Input {
     window.addEventListener('pointerup', this.onPointerUp);
     window.addEventListener('pointermove', this.onPointerMove);
     target.addEventListener('contextmenu', (event) => event.preventDefault());
+    // Wheel cycles weapons; passive:false so the page does not scroll too.
+    target.addEventListener('wheel', this.onWheel, { passive: false });
   }
+
+  private readonly onWheel = (event: WheelEvent): void => {
+    event.preventDefault();
+    if (!this.enabled || event.deltaY === 0) return;
+    if (event.deltaY > 0) this.pendingNext = true;
+    else this.pendingPrev = true;
+  };
 
   dispose(): void {
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('keyup', this.onKeyUp);
     window.removeEventListener('blur', this.onBlur);
     this.target.removeEventListener('pointerdown', this.onPointerDown);
+    this.target.removeEventListener('wheel', this.onWheel);
     window.removeEventListener('pointerup', this.onPointerUp);
     window.removeEventListener('pointermove', this.onPointerMove);
   }
 
   private readonly onKeyDown = (event: KeyboardEvent): void => {
-    if (event.repeat) return;
+    if (event.repeat || !this.enabled) return;
     // The game owns these keys; let everything else through.
     if (event.code in MOVE_KEYS || event.code in SLOT_KEYS || event.code === 'Space') {
       event.preventDefault();
@@ -74,8 +86,26 @@ export class Input {
     if (slot !== undefined) this.pendingSlot = slot;
     if (event.code === 'KeyE' || event.code === 'BracketRight') this.pendingNext = true;
     if (event.code === 'KeyQ' || event.code === 'BracketLeft') this.pendingPrev = true;
-    if (event.code === 'KeyP' || event.code === 'Escape') this.pausePressed = true;
+    if (event.code === 'KeyP') this.pausePressed = true;
   };
+
+  /** Hand the keyboard to the menus, or take it back for play. */
+  setEnabled(value: boolean): void {
+    if (this.enabled === value) return;
+    this.enabled = value;
+    // Whatever was held or tapped while the menu was up must not carry over.
+    this.down.clear();
+    this.pointerDown = false;
+    this.clearLatches();
+  }
+
+  /** Drop any edge-triggered presses so a fresh run starts from nothing. */
+  clearLatches(): void {
+    this.pendingSlot = null;
+    this.pendingNext = false;
+    this.pendingPrev = false;
+    this.pausePressed = false;
+  }
 
   private readonly onKeyUp = (event: KeyboardEvent): void => {
     this.down.delete(event.code);
@@ -88,6 +118,7 @@ export class Input {
   };
 
   private readonly onPointerDown = (event: PointerEvent): void => {
+    if (!this.enabled) return;
     this.pointerDown = true;
     this.updatePointer(event);
   };
@@ -102,8 +133,14 @@ export class Input {
 
   private updatePointer(event: PointerEvent): void {
     const rect = this.target.getBoundingClientRect();
-    this.pointerX = ((event.clientX - rect.left) / rect.width) * this.target.width;
-    this.pointerY = ((event.clientY - rect.top) / rect.height) * this.target.height;
+    // Before layout settles the canvas can measure zero; a division by that
+    // would poison the aim with NaN and the player would stop being drawn.
+    if (rect.width <= 0 || rect.height <= 0) return;
+    const x = ((event.clientX - rect.left) / rect.width) * this.target.width;
+    const y = ((event.clientY - rect.top) / rect.height) * this.target.height;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    this.pointerX = x;
+    this.pointerY = y;
   }
 
   isDown(code: string): boolean {

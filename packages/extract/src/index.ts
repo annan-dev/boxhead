@@ -20,7 +20,13 @@ import {
 import { decodeAvm1, type Avm1Object } from './swf/Avm1Decoder.js';
 import { buildClip, validate, type ArtPack, type Clip } from './ModelBuilder.js';
 import { decodeLossless } from './swf/BitmapDecoder.js';
-import { buildSprite, buildTexture, indexDefinitions } from './SpriteExtractor.js';
+import {
+  bitmapsInFrame,
+  bitmapsPerFrame,
+  buildSprite,
+  buildTexture,
+  indexDefinitions,
+} from './SpriteExtractor.js';
 import { extractRooms } from './RoomExtractor.js';
 import type { SpriteArt, Texture } from '@boxhead/shared';
 import { encodePng } from './png.js';
@@ -140,8 +146,10 @@ function main(): void {
   // Wall blocks, objects, pickups and effects are ordinary Flash symbols. The
   // wall pieces are three-faced boxes, which is where the original's chunky 3D
   // look comes from; several others are animated and keep every frame.
+  // Screen_Debrief is the one menu screen worth keeping as vector art: its
+  // grey skull and crossbones watermarks the end-of-run screen.
   const WORLD_PATTERN =
-    /^(Piece\.|Object\.(Wall|Barrel|Mine|ChargePack|Pickup|LaserNode)$|Effect\.|Shot\.(Rocket|Grenade|ClusterShell|Devastator|DLaser)$|\w+\.MuzzleFlash$)/;
+    /^(Piece\.|Object\.(Wall|Barrel|Mine|ChargePack|Pickup|LaserNode)$|Effect\.|Shot\.(Rocket|Grenade|ClusterShell|Devastator|DLaser)$|\w+\.MuzzleFlash$|Screen_Debrief$)/;
   const sprites: Record<string, SpriteArt> = {};
   const missingSprites: string[] = [];
   for (const [id, name] of exports) {
@@ -218,6 +226,8 @@ function main(): void {
   // ---- bitmaps ------------------------------------------------------------
   let bitmapCount = 0;
   const bitmapIndex: Array<{ id: number; name: string; width: number; height: number }> = [];
+  /** Written file per bitmap id, for the screen-art manifest below. */
+  const bitmapFiles = new Map<number, string>();
   for (const tag of tags) {
     const isLossless =
       tag.code === TagCode.DefineBitsLossless || tag.code === TagCode.DefineBitsLossless2;
@@ -231,6 +241,7 @@ function main(): void {
       encodePng(bitmap.width, bitmap.height, bitmap.rgba),
     );
     bitmapIndex.push({ id: bitmap.id, name, width: bitmap.width, height: bitmap.height });
+    bitmapFiles.set(bitmap.id, `${safe}.png`);
     bitmapCount += 1;
   }
   // DefineBits images carry no tables of their own; they share a single
@@ -244,13 +255,58 @@ function main(): void {
     const payload = tag.body.subarray(2);
     const jpeg = tables ? Buffer.concat([tables, payload.subarray(2)]) : payload;
     const name = exports.get(id) ?? `bitmap_${id}`;
-    writeFileSync(join(out, 'bitmaps', `${name.replace(/[^A-Za-z0-9._-]/g, '_')}.jpg`), jpeg);
+    const file = `${name.replace(/[^A-Za-z0-9._-]/g, '_')}.jpg`;
+    writeFileSync(join(out, 'bitmaps', file), jpeg);
     bitmapIndex.push({ id, name, width: 0, height: 0 });
+    bitmapFiles.set(id, file);
     bitmapCount += 1;
   }
 
   writeFileSync(join(out, 'bitmaps', 'index.json'), JSON.stringify(bitmapIndex, null, 2));
   process.stdout.write(`bitmaps  ${bitmapCount} written\n`);
+
+  // ---- screen art ---------------------------------------------------------
+  // The menus' own pictures: the logo, one icon per arena (LevelIcons_Single
+  // shows one frame per room, in room order) and the character portraits,
+  // which are bitmaps placed on the select screen in character order.
+  const screens: {
+    logo: string | null;
+    levelIcons: Record<string, string>;
+    portraits: Record<string, string>;
+  } = { logo: null, levelIcons: {}, portraits: {} };
+
+  const logoId = idByName.get('Screen_Main');
+  const logoBitmaps = logoId === undefined ? [] : bitmapsInFrame(logoId, defs);
+  const logoFile = logoBitmaps.map((id) => bitmapFiles.get(id)).find((f) => f?.endsWith('.png'));
+  screens.logo = logoFile ?? null;
+
+  const iconsId = idByName.get('LevelIcons_Single');
+  const iconsDef = iconsId === undefined ? undefined : defs.get(iconsId);
+  if (iconsDef) {
+    const frames = bitmapsPerFrame(iconsDef.body, defs);
+    rooms.forEach((room, index) => {
+      const file = frames[index]?.map((id) => bitmapFiles.get(id)).find((f) => f !== undefined);
+      if (file) screens.levelIcons[room.id] = file;
+    });
+  }
+
+  // Portraits are the 400x400 bitmaps, placed in the character-select order.
+  const portraitIds = bitmapIndex
+    .filter((b) => b.width === 400 && b.height === 400)
+    .map((b) => b.id)
+    .sort((a, b) => a - b);
+  const CHARACTER_ORDER = ['swat', 'bond', 'gijoe', 'bambo'];
+  portraitIds.forEach((id, index) => {
+    const character = CHARACTER_ORDER[index];
+    const file = bitmapFiles.get(id);
+    if (character && file) screens.portraits[character] = file;
+  });
+
+  writeFileSync(join(out, 'bitmaps', 'screens.json'), JSON.stringify(screens, null, 2));
+  process.stdout.write(
+    `screens  logo ${screens.logo ?? 'none'}, ${Object.keys(screens.levelIcons).length} level icons, ` +
+      `${Object.keys(screens.portraits).length} portraits\n`,
+  );
 
   // ---- sounds -------------------------------------------------------------
   // Report formats first; only raw PCM can be written without a codec.

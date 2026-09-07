@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "start": "tsx src/index.ts",
-    "build": "tsc -b"
+    "build": "tsc -b",
+    "start:built": "node dist/index.js"
   },
   "dependencies": {
     "@boxhead/shared": "*",

@@ -1,0 +1,29 @@
+{
+  "logo": "bitmap_8.png",
+  "levelIcons": {
+    "ROOM_Single_0001": "bitmap_409.jpg",
+    "ROOM_Single_0002": "bitmap_427.png",
+    "ROOM_Single_0003": "bitmap_431.png",
+    "ROOM_Single_0004": "bitmap_435.jpg",
+    "ROOM_Single_0005": "bitmap_439.png",
+    "ROOM_Single_0006": "bitmap_443.png",
+    "ROOM_Single_0007": "bitmap_447.jpg",
+    "ROOM_Single_0008": "bitmap_451.jpg",
+    "ROOM_Single_0009": "bitmap_455.jpg",
+    "ROOM_Single_0010": "bitmap_460.png",
+    "ROOM_Single_0011": "bitmap_464.jpg",
+    "ROOM_Single_0012": "bitmap_468.jpg",
+    "ROOM_Single_0013": "bitmap_472.png",
+    "ROOM_Single_0014": "bitmap_476.png",
+    "ROOM_Single_0015": "bitmap_480.png",
+    "ROOM_Single_0016": "bitmap_484.png",
+    "ROOM_Single_0017": "bitmap_488.png",
+    "ROOM_Single_0018": "bitmap_492.jpg"
+  },
+  "portraits": {
+    "swat": "bitmap_506.png",
+    "bond": "bitmap_511.png",
+    "gijoe": "bitmap_514.png",
+    "bambo": "bitmap_517.png"
+  }
+}

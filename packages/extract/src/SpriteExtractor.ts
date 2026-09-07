@@ -19,11 +19,14 @@ import {
   composeCxform,
   type ColorTransform,
 } from './swf/BitReader.js';
-import { decodeShape } from './swf/ShapeDecoder.js';
+import { decodeShape, TAG_DEFINE_MORPH_SHAPE } from './swf/ShapeDecoder.js';
 import { spriteTags, spriteId, TagCode, type SwfTag } from './swf/Reader.js';
 import type { SpriteArt, SpriteFrame, TextureLayer } from '@boxhead/shared';
 
-const SHAPE_TAGS = new Set([2, 22, 32, 83]);
+/** DefineShape 1-4 plus DefineMorphShape, blended at the placing tag's ratio. */
+const SHAPE_TAGS = new Set([2, 22, 32, 83, TAG_DEFINE_MORPH_SHAPE]);
+/** DefineBits, DefineBitsLossless(2), DefineBitsJPEG2/3: indexed so fills resolve. */
+const BITMAP_TAGS = new Set([6, 20, 21, 35, 36]);
 const PLACE_OBJECT = 4;
 const PLACE_OBJECT2 = 26;
 const PLACE_OBJECT3 = 70;
@@ -56,15 +59,29 @@ interface Placement {
   characterId: number;
   matrix: Matrix;
   cxform: ColorTransform;
+  /** Morph ratio, 0..1. */
+  ratio: number;
+  /** Instance name, when the timeline gave one. */
+  name?: string | undefined;
 }
+
+/** The child clip the original's animation primitive steps frame by frame. */
+const CONTENTS_NAME = '_Contents';
 
 /**
  * Read the leading fields of a place tag.
  * `character` is undefined for a move that only changes an existing entry.
  */
-function parsePlace(
-  tag: SwfTag,
-): { depth: number; character?: number; matrix?: Matrix; cxform?: ColorTransform } | null {
+interface PlaceFields {
+  depth: number;
+  character?: number;
+  matrix?: Matrix;
+  cxform?: ColorTransform;
+  ratio?: number;
+  name?: string;
+}
+
+function parsePlace(tag: SwfTag): PlaceFields | null {
   const body = tag.body;
   if (tag.code === PLACE_OBJECT) {
     // The oldest form: character and depth are mandatory and unflagged.
@@ -80,13 +97,15 @@ function parsePlace(
   let offset = 0;
   const flags = body[offset]!;
   offset += 1;
-  if (tag.code === PLACE_OBJECT3) offset += 1;
+  let flags2 = 0;
+  if (tag.code === PLACE_OBJECT3) {
+    flags2 = body[offset]!;
+    offset += 1;
+  }
   const depth = body.readUInt16LE(offset);
   offset += 2;
 
-  const result: { depth: number; character?: number; matrix?: Matrix; cxform?: ColorTransform } = {
-    depth,
-  };
+  const result: PlaceFields = { depth };
   if ((flags & 0x02) !== 0) {
     result.character = body.readUInt16LE(offset);
     offset += 2;
@@ -95,6 +114,18 @@ function parsePlace(
   const reader = new BitReader(body, offset);
   if ((flags & 0x04) !== 0) result.matrix = reader.readMatrix();
   if ((flags & 0x08) !== 0) result.cxform = reader.readColorTransform(true);
+  offset = reader.offset;
+  if ((flags & 0x10) !== 0 && offset + 2 <= body.length) {
+    result.ratio = body.readUInt16LE(offset) / 65535;
+    offset += 2;
+  }
+  // The name follows the ratio in both forms, unless PlaceObject3 put a class
+  // name or an image in front, which this file never does.
+  const nameReadable = tag.code === PLACE_OBJECT2 || (flags2 & 0x18) === 0;
+  if ((flags & 0x20) !== 0 && nameReadable && offset < body.length) {
+    const end = body.indexOf(0, offset);
+    result.name = body.toString('latin1', offset, end < 0 ? body.length : end);
+  }
   return result;
 }
 
@@ -110,13 +141,14 @@ function flatten(
   cxform: ColorTransform,
   out: TextureLayer[],
   depth = 0,
+  ratio = 0,
 ): void {
   if (depth > 6) return;
   const def = defs.get(characterId);
   if (!def) return;
 
   if (SHAPE_TAGS.has(def.code)) {
-    const shape = decodeShape(def.code, def.body);
+    const shape = decodeShape(def.code, def.body, ratio);
     if (!shape || shape.paths.length === 0) return;
     // Bake the tint into the colours, so the renderer stays a plain fill.
     const paths = shape.paths.map((path) => {
@@ -138,77 +170,110 @@ function flatten(
       composeCxform(cxform, placement.cxform),
       out,
       depth + 1,
+      placement.ratio,
     );
   }
+}
+
+/** Apply a place tag to a display list, keeping whatever the tag leaves unsaid. */
+function applyPlace(display: Map<number, Placement>, tag: SwfTag): void {
+  const place = parsePlace(tag);
+  if (!place) return;
+  const existing = display.get(place.depth);
+  const characterId = place.character ?? existing?.characterId;
+  if (characterId === undefined) return;
+  // A new character at a depth starts fresh; a move only changes what it names.
+  const base = place.character !== undefined && place.character !== existing?.characterId
+    ? undefined
+    : existing;
+  display.set(place.depth, {
+    characterId,
+    matrix: place.matrix ?? base?.matrix ?? IDENTITY,
+    cxform: place.cxform ?? base?.cxform ?? IDENTITY_CXFORM,
+    ratio: place.ratio ?? base?.ratio ?? 0,
+    name: place.name ?? base?.name,
+  });
+}
+
+/**
+ * Step a sprite's timeline, returning the display list at every ShowFrame,
+ * depths low to high.
+ */
+function stepTimeline(body: Buffer, firstOnly = false): Placement[][] {
+  const display = new Map<number, Placement>();
+  const frames: Placement[][] = [];
+  const snapshot = (): Placement[] =>
+    [...display.keys()].sort((a, b) => a - b).map((d) => display.get(d)!);
+
+  for (const tag of spriteTags(body)) {
+    if (tag.code === PLACE_OBJECT || tag.code === PLACE_OBJECT2 || tag.code === PLACE_OBJECT3) {
+      applyPlace(display, tag);
+    } else if (tag.code === REMOVE_OBJECT2 && tag.body.length >= 2) {
+      display.delete(tag.body.readUInt16LE(0));
+    } else if (tag.code === REMOVE_OBJECT && tag.body.length >= 4) {
+      display.delete(tag.body.readUInt16LE(2));
+    } else if (tag.code === SHOW_FRAME) {
+      frames.push(snapshot());
+      if (firstOnly) return frames;
+    }
+  }
+  // A symbol with no ShowFrame still has content worth keeping.
+  if (frames.length === 0 && display.size > 0) frames.push(snapshot());
+  return frames;
 }
 
 /** Display list as it stands on a sprite's first frame. */
 function firstFrameOf(body: Buffer, defs: DefinitionTable): Placement[] {
   void defs;
-  const display = new Map<number, Placement>();
-  for (const tag of spriteTags(body)) {
-    if (tag.code === PLACE_OBJECT || tag.code === PLACE_OBJECT2 || tag.code === PLACE_OBJECT3) {
-      const place = parsePlace(tag);
-      if (!place) continue;
-      const existing = display.get(place.depth);
-      const characterId = place.character ?? existing?.characterId;
-      if (characterId === undefined) continue;
-      display.set(place.depth, {
-        characterId,
-        matrix: place.matrix ?? existing?.matrix ?? IDENTITY,
-        cxform: place.cxform ?? existing?.cxform ?? IDENTITY_CXFORM,
-      });
-    } else if (tag.code === REMOVE_OBJECT2 && tag.body.length >= 2) {
-      display.delete(tag.body.readUInt16LE(0));
-    } else if (tag.code === REMOVE_OBJECT && tag.body.length >= 4) {
-      display.delete(tag.body.readUInt16LE(2));
-    } else if (tag.code === SHOW_FRAME) {
-      break;
-    }
-  }
-  return [...display.keys()].sort((a, b) => a - b).map((d) => display.get(d)!);
+  return stepTimeline(body, true)[0] ?? [];
 }
 
 /**
  * Step a sprite's timeline, emitting one entry per ShowFrame.
  * Depths are drawn low to high, matching Flash's display list.
+ *
+ * The original's animation primitive steps the symbol and a child instance
+ * named `_Contents` together, frame for frame. Several effects (the rocket,
+ * the fireball, the bullet puff, the smoke cloud) are one-frame wrappers
+ * around such a child, so the child's frames are what gets animated.
  */
 function runTimeline(body: Buffer, defs: DefinitionTable): SpriteFrame[] {
-  const display = new Map<number, Placement>();
-  const frames: SpriteFrame[] = [];
-
-  const snapshot = (): void => {
-    const layers: TextureLayer[] = [];
-    for (const depth of [...display.keys()].sort((a, b) => a - b)) {
-      const placement = display.get(depth)!;
-      flatten(placement.characterId, defs, placement.matrix, placement.cxform, layers);
-    }
-    frames.push({ layers });
-  };
-
-  for (const tag of spriteTags(body)) {
-    if (tag.code === PLACE_OBJECT || tag.code === PLACE_OBJECT2 || tag.code === PLACE_OBJECT3) {
-      const place = parsePlace(tag);
-      if (!place) continue;
-      const existing = display.get(place.depth);
-      const characterId = place.character ?? existing?.characterId;
-      if (characterId === undefined) continue;
-      display.set(place.depth, {
-        characterId,
-        matrix: place.matrix ?? existing?.matrix ?? IDENTITY,
-        cxform: place.cxform ?? existing?.cxform ?? IDENTITY_CXFORM,
-      });
-    } else if (tag.code === REMOVE_OBJECT2 && tag.body.length >= 2) {
-      display.delete(tag.body.readUInt16LE(0));
-    } else if (tag.code === REMOVE_OBJECT && tag.body.length >= 4) {
-      display.delete(tag.body.readUInt16LE(2));
-    } else if (tag.code === SHOW_FRAME) {
-      snapshot();
+  const own = stepTimeline(body);
+  let contentsFrames: Placement[][] | null = null;
+  const contents = own[0]?.find((placement) => placement.name === CONTENTS_NAME);
+  if (contents) {
+    const child = defs.get(contents.characterId);
+    if (child?.code === TagCode.DefineSprite) {
+      const stepped = stepTimeline(child.body);
+      if (stepped.length > 1) contentsFrames = stepped;
     }
   }
 
-  // A symbol with no ShowFrame still has content worth keeping.
-  if (frames.length === 0 && display.size > 0) snapshot();
+  const total = Math.max(own.length, contentsFrames?.length ?? 0);
+  const frames: SpriteFrame[] = [];
+  for (let i = 0; i < total; i++) {
+    const layers: TextureLayer[] = [];
+    const display = own[Math.min(i, own.length - 1)] ?? [];
+    for (const placement of display) {
+      if (contentsFrames && placement.name === CONTENTS_NAME) {
+        const inner = contentsFrames[Math.min(i, contentsFrames.length - 1)] ?? [];
+        for (const child of inner) {
+          flatten(
+            child.characterId,
+            defs,
+            multiply(placement.matrix, child.matrix),
+            composeCxform(placement.cxform, child.cxform),
+            layers,
+            1,
+            child.ratio,
+          );
+        }
+      } else {
+        flatten(placement.characterId, defs, placement.matrix, placement.cxform, layers, 0, placement.ratio);
+      }
+    }
+    frames.push({ layers });
+  }
   return frames;
 }
 
@@ -221,6 +286,8 @@ export function indexDefinitions(tags: SwfTag[]): Map<number, { code: number; bo
         defs.set(spriteId(tag.body), { code: tag.code, body: tag.body });
         walk(spriteTags(tag.body));
       } else if (SHAPE_TAGS.has(tag.code) && tag.body.length >= 2) {
+        defs.set(tag.body.readUInt16LE(0), { code: tag.code, body: tag.body });
+      } else if (BITMAP_TAGS.has(tag.code) && tag.body.length >= 2) {
         defs.set(tag.body.readUInt16LE(0), { code: tag.code, body: tag.body });
       }
     }
@@ -276,6 +343,54 @@ export function buildSprite(
   const kept = frames.filter((frame) => frame.layers.length > 0);
   if (kept.length === 0) return null;
   return { name, frames: kept, bounds: boundsOf(kept) };
+}
+
+/**
+ * Bitmap ids painted by a symbol's first frame, nearest the top of the display
+ * list first. Used to find which bitmap a level icon or portrait frame shows.
+ */
+export function bitmapsInFrame(
+  characterId: number,
+  defs: DefinitionTable,
+  depth = 0,
+): number[] {
+  if (depth > 6) return [];
+  const def = defs.get(characterId);
+  if (!def) return [];
+  if (SHAPE_TAGS.has(def.code)) return decodeShape(def.code, def.body)?.bitmaps ?? [];
+  if (def.code !== TagCode.DefineSprite) return [];
+  const out: number[] = [];
+  for (const placement of firstFrameOf(def.body, defs)) {
+    for (const id of bitmapsInFrame(placement.characterId, defs, depth + 1)) {
+      if (!out.includes(id)) out.push(id);
+    }
+  }
+  return out;
+}
+
+/** Per-frame bitmap ids for an animated symbol, e.g. one icon per level. */
+export function bitmapsPerFrame(body: Buffer, defs: DefinitionTable): number[][] {
+  const display = new Map<number, number>();
+  const frames: number[][] = [];
+  for (const tag of spriteTags(body)) {
+    if (tag.code === PLACE_OBJECT || tag.code === PLACE_OBJECT2 || tag.code === PLACE_OBJECT3) {
+      const place = parsePlace(tag);
+      if (!place) continue;
+      const characterId = place.character ?? display.get(place.depth);
+      if (characterId !== undefined) display.set(place.depth, characterId);
+    } else if (tag.code === REMOVE_OBJECT2 && tag.body.length >= 2) {
+      display.delete(tag.body.readUInt16LE(0));
+    } else if (tag.code === REMOVE_OBJECT && tag.body.length >= 4) {
+      display.delete(tag.body.readUInt16LE(2));
+    } else if (tag.code === SHOW_FRAME) {
+      const ids: number[] = [];
+      for (const characterId of display.values()) {
+        for (const id of bitmapsInFrame(characterId, defs)) if (!ids.includes(id)) ids.push(id);
+      }
+      frames.push(ids);
+    }
+  }
+  return frames;
 }
 
 /**

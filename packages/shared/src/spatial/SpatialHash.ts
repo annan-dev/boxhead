@@ -9,6 +9,9 @@ export class SpatialHash {
   private readonly head: Int32Array;
   private readonly next: Int32Array;
   private readonly cellOf: Int32Array;
+  /** Per-id visit stamp for segment queries, so de-duplication never allocates. */
+  private readonly seenStamp: Uint32Array;
+  private stamp = 0;
   readonly cols: number;
   readonly rows: number;
 
@@ -23,6 +26,7 @@ export class SpatialHash {
     this.head = new Int32Array(this.cols * this.rows).fill(-1);
     this.next = new Int32Array(capacity).fill(-1);
     this.cellOf = new Int32Array(capacity).fill(-1);
+    this.seenStamp = new Uint32Array(capacity);
   }
 
   private cellIndex(x: number, y: number): number {
@@ -73,10 +77,20 @@ export class SpatialHash {
   }
 
   /**
-   * Ids whose cell overlaps the circle, written into `out`.
-   * Returns the count; callers must still do the exact distance test.
+   * Ids whose cell overlaps the circle, written into `out` in ascending id
+   * order. Returns the count; callers must still do the exact distance test.
+   *
+   * The order matters: callers draw random numbers per hit, so it must not
+   * depend on the order things happened to be inserted, which differs between
+   * a world that played out live and one restored from a snapshot.
    */
   queryCircle(x: number, y: number, radius: number, out: Int32Array): number {
+    const count = this.collectCircle(x, y, radius, out);
+    if (count > 1) out.subarray(0, count).sort();
+    return count;
+  }
+
+  private collectCircle(x: number, y: number, radius: number, out: Int32Array): number {
     const minX = Math.max(0, Math.floor((x - radius) / this.cellSize));
     const maxX = Math.min(this.cols - 1, Math.floor((x + radius) / this.cellSize));
     const minY = Math.max(0, Math.floor((y - radius) / this.cellSize));
@@ -97,12 +111,24 @@ export class SpatialHash {
   }
 
   /**
-   * Ids in cells the segment passes through, for swept projectiles.
+   * Ids in cells the segment passes through, for swept projectiles, in
+   * ascending id order (see `queryCircle` for why).
    * Walks the cells with a DDA rather than testing the whole bounding box.
    */
   querySegment(x0: number, y0: number, x1: number, y1: number, out: Int32Array): number {
+    const count = this.collectSegment(x0, y0, x1, y1, out);
+    if (count > 1) out.subarray(0, count).sort();
+    return count;
+  }
+
+  private collectSegment(x0: number, y0: number, x1: number, y1: number, out: Int32Array): number {
     let count = 0;
-    const seen = new Set<number>();
+    this.stamp += 1;
+    if (this.stamp === 0xffffffff) {
+      this.seenStamp.fill(0);
+      this.stamp = 1;
+    }
+    const seen = this.stamp;
     const steps = Math.max(
       1,
       Math.ceil(Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0)) / (this.cellSize * 0.5)),
@@ -119,8 +145,8 @@ export class SpatialHash {
           if (nx < 0 || ny < 0 || nx >= this.cols || ny >= this.rows) continue;
           let id = this.head[ny * this.cols + nx]!;
           while (id !== -1) {
-            if (!seen.has(id)) {
-              seen.add(id);
+            if (this.seenStamp[id] !== seen) {
+              this.seenStamp[id] = seen;
               if (count >= out.length) return count;
               out[count] = id;
               count += 1;

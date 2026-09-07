@@ -303,12 +303,15 @@ export function getPose(clip: Clip, direction: number, frame: number): Pose | nu
 
 /**
  * Map a facing angle (radians, 0 = +x, growing clockwise on screen) to the
- * clip's direction index.
+ * clip's direction index. Direction k faces (k + 1) steps past west, so the
+ * nearest frame is one index back from the rounded step; see
+ * GameRenderer.directionIndex, which this mirrors.
  */
 export function directionFor(clip: Clip, angle: number): number {
   if (clip.directions === 0) return 0;
-  const turns = angle / (Math.PI * 2);
-  return Math.round(turns * clip.directions) % clip.directions;
+  const turns = angle / (Math.PI * 2) + 0.5;
+  const nearest = Math.round(turns * clip.directions) - 1;
+  return ((nearest % clip.directions) + clip.directions) % clip.directions;
 }
 
 /** Resolve a playback step through `sequence` when the clip defines one. */

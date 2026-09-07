@@ -50,22 +50,26 @@ export interface Creature extends Entity {
   hitTicks: number;
   /** True when the last hit came from behind. */
   hitFromRear: boolean;
+  /**
+   * Shove from the last hit, in pixels per tick, decaying each tick; the
+   * creature slides on it and does nothing else while `stun` runs.
+   */
+  pushX: number;
+  pushY: number;
+  /** Ticks left without control after a hit: the slide, then a short rest. */
+  stun: number;
 }
 
 export interface Enemy extends Creature {
+  kind: 'enemy';
   defId: EnemyId;
   /** Player entity id this enemy is chasing, or -1. */
   targetId: number;
   /** Cached line-of-sight result, refreshed on a stagger. */
   hasLos: boolean;
   losTimer: number;
-  /** Ticks spent making no progress, which triggers attacking the barricade. */
+  /** Ticks spent making no progress; a devil answers by razing what is in its way. */
   stuckTicks: number;
-  /** Small per-instance drift so crowds do not march in lockstep. */
-  wobblePhase: number;
-  /** Cell of a barricade this enemy has decided to break through. */
-  chewCx: number;
-  chewCy: number;
 }
 
 export interface WeaponSlot {
@@ -74,6 +78,7 @@ export interface WeaponSlot {
 }
 
 export interface Player extends Creature {
+  kind: 'player';
   /** Zero-based player index; also selects the input source. */
   index: number;
   characterId: string;
@@ -89,7 +94,21 @@ export interface Player extends Creature {
   stats: PlayerStats;
   /** True while the fire control was held last tick, for release-fired weapons. */
   firingHeld: boolean;
+  /** Ticks the fire control has been held, which charges a grenade throw. */
+  fireHeldTicks: number;
+  /**
+   * Charge packs alternate between placing and detonating on each press
+   * (`CThing_Weapon_ChargePack.Fire`); true when the next press sets them off.
+   */
+  detonateMode: boolean;
   kills: number;
+  /** Deathmatch tally, one per kill credited; unused where the score is shared. */
+  score: number;
+  /**
+   * False for a slot nobody is driving (a free seat on a server). Such a
+   * player stays dead, never respawns and is not drawn.
+   */
+  connected: boolean;
 }
 
 export interface Shot extends Entity {
@@ -111,15 +130,24 @@ export interface Shot extends Entity {
   hits: Set<number>;
   /** Spawns cluster shells on detonation. */
   cluster: boolean;
+  /** Follow-up blasts a cell out (Big Bang / Bigger Bang). */
+  extraBlasts: number;
+  /** Damage to walls and barrels in the burst, where it differs from `splashDamage`. */
+  wallDamage: number;
+  /** Vertical speed, for lobbed projectiles; `z` is the height. */
+  vz: number;
+  /** Resolves its whole range on the tick it is fired, like the original's bullets. */
+  hitscan: boolean;
 }
 
 export type PlaceableType = 'barrel' | 'mine' | 'chargepack';
 
 export interface Placeable extends Entity {
+  kind: 'placeable';
   type: PlaceableType;
   ownerId: number;
   hp: number;
-  /** Ticks until it becomes live; mines only. */
+  /** Ticks until it becomes live; mines only. -1 waits for its cell to be clear of bodies. */
   armTime: number;
   /** Ticks until automatic detonation; -1 when triggered instead. */
   fuse: number;
@@ -127,6 +155,8 @@ export interface Placeable extends Entity {
   splashRadius: number;
   splashDamage: number;
   cluster: boolean;
+  /** Follow-up blasts a cell out (Big Bang / Bigger Bang). */
+  extraBlasts: number;
   /** Set when something has already scheduled this to blow, preventing loops. */
   detonating: boolean;
 }
@@ -138,6 +168,7 @@ export type EffectType =
   | 'smoke'
   | 'spark'
   | 'fireball'
+  | 'rocketsmoke'
   | 'gib';
 
 export interface Effect extends Entity {
@@ -147,20 +178,31 @@ export interface Effect extends Entity {
   size: number;
   /** Free parameter: rotation for gibs, intensity for explosions. */
   seed: number;
+  /** Optional flavour, e.g. the weapon behind a muzzle flash. */
+  variant: string;
 }
 
 export type PickupType = 'life' | 'ammo';
 
 export interface Pickup extends Entity {
+  kind: 'pickup';
   type: PickupType;
   weapon: WeaponId | null;
   amount: number;
   /** Ticks before it disappears; -1 to persist. */
   life: number;
+  /** A room's own crate: taken, it comes back after a while instead of dying. */
+  permanent: boolean;
+  /** Tick at which a taken permanent crate reappears; 0 while it is out. */
+  hiddenUntil: number;
 }
 
 /** A permanent floor mark. The client stamps these into its floor layer. */
 export interface Decal {
+  /** Monotonic; the client stamps everything newer than what it last saw. */
+  seq: number;
+  /** Tick it was laid down on, so a predicting client can tell a guess from a fact. */
+  tick: number;
   x: number;
   y: number;
   type: 'blood' | 'scorch' | 'pock';
@@ -175,15 +217,24 @@ export interface PendingAffect {
   y: number;
   radius: number;
   damage: number;
+  /** Damage to breakable walls in range; usually the same as `damage`. */
+  wallDamage: number;
   ownerId: number;
-  knockback: number;
   cluster: boolean;
+  /** Follow-up blasts still to queue when this one resolves. */
+  extraBlasts: number;
+  /** Ticks to wait before resolving; the visuals appear when it does. */
+  delay: number;
+  /** The blast's picture and sound are still owed, for a delayed blast. */
+  announce: boolean;
   /** Prevents a chain reaction from recursing without bound. */
   depth: number;
 }
 
 /** Transient banner text, e.g. a level heading or an upgrade award. */
 export interface Message {
+  /** Monotonic per world, so a server can forward only what is new. */
+  seq: number;
   text: string;
   kind: 'level' | 'upgrade' | 'info' | 'critical';
   /** Ticks remaining on screen. */
@@ -192,6 +243,8 @@ export interface Message {
 
 /** A floating score or multi-kill popup. */
 export interface Popup {
+  /** Monotonic per world, so a server can forward only what is new. */
+  seq: number;
   x: number;
   y: number;
   text: string;
@@ -206,4 +259,6 @@ export interface SoundEvent {
   y: number;
   /** Pitch jitter, 1 is unmodified. */
   rate: number;
+  /** Player entity id that caused the sound, or -1; lets a client skip sounds it already predicted. */
+  ownerId: number;
 }

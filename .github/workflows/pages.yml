@@ -1,0 +1,52 @@
+# Builds the single-file client and publishes it as the GitHub Pages site.
+#
+# The page at the site root is playable on its own (single player) and can
+# join servers that offer wss://. To join an ordinary ws:// server, players
+# download boxhead.html from the site and open it from their computer; the
+# HTTPS page cannot open plain sockets, a file opened from disk can.
+name: pages
+
+on:
+  push:
+    branches: [master, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build:single
+      - name: Lay out the site
+        run: |
+          mkdir -p site
+          cp packages/client/dist/boxhead.html site/index.html
+          cp packages/client/dist/boxhead.html site/boxhead.html
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -31,7 +31,10 @@ function commands(): ReturnType<typeof emptyCommand>[] {
   }
   command.aimX = best ? best.x : player.x + 100;
   command.aimY = best ? best.y : player.y;
-  command.fire = best !== null;
+  // Tap rather than hold: most weapons are semi-automatic.
+  command.fire = best !== null && world.tick % 2 === 0;
+  // The railgun clears lines of zombies, which is what pushes the levels up.
+  if (world.tick === 1) command.weaponSlot = 0;
   return [command];
 }
 
