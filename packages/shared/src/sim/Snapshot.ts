@@ -101,6 +101,8 @@ export interface ShotSnapshot {
   z: number;
   vz: number;
   hitscan: boolean;
+  /** Older snapshots have no volley; such shots simply do not count. */
+  volley?: number;
 }
 
 export interface PlaceableSnapshot {

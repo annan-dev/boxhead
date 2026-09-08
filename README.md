@@ -95,6 +95,16 @@ The design that fell out of it is not what a level-based recreation assumes:
 - Placed objects go one cell ahead with an outline, and are refused where a
   body stands; the original dropped them at the gun hand and grew them
   solid once the player stepped off.
+- The camera leans a little toward the aim, a kill holds the picture for a
+  frame, and the player's fall plays out in slow motion; the original's
+  camera and clock never varied.
+- A single-player run parks itself when the window loses focus or closes and
+  can be continued from the title; one-time tips, a bed of music under play,
+  threat markers at the screen edge and the run statistics on the debrief are
+  all this port's own. Every one of them can be turned off or ignored except
+  the markers.
+- Two players on one screen are held within a screen of each other by the
+  simulation; the original let a player walk off the edge.
 
 To compare feel directly, run the SWF in [Ruffle](https://ruffle.rs) beside
 this build.

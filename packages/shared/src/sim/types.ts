@@ -138,6 +138,8 @@ export interface Shot extends Entity {
   vz: number;
   /** Resolves its whole range on the tick it is fired, like the original's bullets. */
   hitscan: boolean;
+  /** The trigger pull this shot came from; 0 for a devil's fire. Accuracy counts volleys, not pellets. */
+  volley: number;
 }
 
 export type PlaceableType = 'barrel' | 'mine' | 'chargepack';
@@ -231,6 +233,8 @@ export interface PendingAffect {
   depth: number;
   /** What set the blast off, for the run's statistics; null for a devil's fire or a room barrel. */
   weapon: WeaponId | null;
+  /** The trigger pull behind the blast, or 0. */
+  volley: number;
 }
 
 /** Tallies kept for the debrief. They never influence the simulation. */
@@ -241,6 +245,8 @@ export interface RunStats {
   shotsHit: number;
   longestStreak: number;
   killsByWeapon: Partial<Record<WeaponId, number>>;
+  /** Trigger pulls so far; each shot carries the number of the one that fired it. */
+  volleys: number;
 }
 
 /** Transient banner text, e.g. a level heading or an upgrade award. */

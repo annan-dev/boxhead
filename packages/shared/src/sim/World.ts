@@ -200,7 +200,9 @@ export class World {
   winnerIndex = -1;
 
   /** Tallies for the debrief; read by the client, never by the simulation. */
-  readonly stats: RunStats = { shotsFired: 0, shotsHit: 0, longestStreak: 0, killsByWeapon: {} };
+  readonly stats: RunStats = { shotsFired: 0, shotsHit: 0, longestStreak: 0, killsByWeapon: {}, volleys: 0 };
+  /** Volleys already counted as hits; a shotgun's three pellets count once. */
+  private readonly hitVolleys: number[] = [];
 
   /** Screen shake amplitude; draw-only, never fed back into the simulation. */
   shake = 0;
@@ -1103,9 +1105,10 @@ export class World {
       const power = def.onRelease
         ? Math.max(GRENADE.minPower, Math.min(1, heldTicks / GRENADE.chargeTicks))
         : 1;
+      this.stats.shotsFired += 1;
+      this.stats.volleys += 1;
       this.fireProjectiles(player, def, stats, power);
       this.shake += def.shake;
-      this.stats.shotsFired += 1;
     }
     player.fireCooldown = Math.max(1, stats.fireRate ?? def.fireRate);
     if (!infinite) slot.ammo -= 1;
@@ -1277,6 +1280,7 @@ export class World {
         wallDamage: def.splash?.damage ?? def.damage * stats.damageMul,
         vz: def.kind === 'grenade' ? GRENADE.launchVz * power : 0,
         hitscan: def.hitscan ?? false,
+        volley: this.stats.volleys,
       };
       this.shots.push(shot);
     }
@@ -1609,6 +1613,7 @@ export class World {
       cluster: false,
       extraBlasts: 0,
       wallDamage: atObject ? FIREBALL.objectDamage : FIREBALL.damage,
+      volley: 0,
       vz: 0,
       hitscan: false,
     });
@@ -1959,6 +1964,7 @@ export class World {
       extraBlasts: shot.extraBlasts,
       wallDamage: shot.wallDamage,
       weapon: shot.kind === 'fireball' ? null : shot.weapon,
+      volley: shot.volley,
     });
   }
 
@@ -2036,8 +2042,8 @@ export class World {
     hits.sort((a, b) => a.distance - b.distance);
 
     const first = hits[0]!.thing;
-    // The first creature a player's shot touches makes it a hit, once.
-    if (!enemyProjectile && first.kind === 'enemy' && shot.hits.size === 0) this.stats.shotsHit += 1;
+    // The first creature a volley touches makes it a hit, once for the volley.
+    if (!enemyProjectile && first.kind === 'enemy') this.countHit(shot.volley);
     shot.hits.add(first.id);
 
     if (enemyProjectile) {
@@ -2067,6 +2073,17 @@ export class World {
     }
     hits.length = 0;
     return false;
+  }
+
+  /**
+   * A volley (one trigger pull, however many pellets or blasts it made)
+   * counts as a hit the first time anything of it touches a creature.
+   */
+  private countHit(volley: number): void {
+    if (volley <= 0 || this.hitVolleys.includes(volley)) return;
+    this.hitVolleys.push(volley);
+    if (this.hitVolleys.length > 32) this.hitVolleys.shift();
+    this.stats.shotsHit += 1;
   }
 
   /** Apply a player's shot to whatever it struck. */
@@ -2185,7 +2202,7 @@ export class World {
     ownerId: number,
     cluster: boolean,
     depth: number,
-    extras: { extraBlasts?: number; wallDamage?: number; delay?: number; weapon?: WeaponId | null } = {},
+    extras: { extraBlasts?: number; wallDamage?: number; delay?: number; weapon?: WeaponId | null; volley?: number } = {},
   ): void {
     if (depth > MAX_AFFECT_DEPTH) return;
     const delay = extras.delay ?? 0;
@@ -2202,6 +2219,7 @@ export class World {
       announce: delay > 0,
       depth,
       weapon: extras.weapon ?? null,
+      volley: extras.volley ?? 0,
     });
     if (delay === 0) this.announceBlast(x, y, radius);
   }
@@ -2246,6 +2264,7 @@ export class World {
           if (d > affect.radius) continue;
           const falloff = fireball ? 1 : explosionFalloff(d / affect.radius);
           const angle = Math.atan2(enemy.y - affect.y, enemy.x - affect.x);
+          if (affect.volley > 0) this.countHit(affect.volley);
           this.damageEnemy(enemy, affect.damage * falloff, angle, !fireball, affect.ownerId, affect.weapon);
           continue;
         }
@@ -2352,6 +2371,7 @@ export class World {
         wallDamage: affect.wallDamage,
         vz: CLUSTER_SHELL.launchVz,
         hitscan: false,
+        volley: affect.volley,
       });
     }
   }
@@ -2377,6 +2397,7 @@ export class World {
           wallDamage: affect.wallDamage,
           delay: this.rng.int(EXTRA_BLAST.minDelay, EXTRA_BLAST.maxDelay),
           weapon: affect.weapon,
+          volley: affect.volley,
         },
       );
     }
@@ -2910,6 +2931,7 @@ export class World {
         shotsHit: this.stats.shotsHit,
         longestStreak: this.stats.longestStreak,
         killsByWeapon: { ...this.stats.killsByWeapon },
+        volleys: this.stats.volleys,
       },
       map: {
         revision: this.map.revision,
@@ -3000,6 +3022,7 @@ export class World {
         z: s.z,
         vz: s.vz,
         hitscan: s.hitscan,
+        volley: s.volley,
       })),
       placeables: this.placeables.map((p) => ({
         id: p.id,
@@ -3082,7 +3105,9 @@ export class World {
       this.stats.shotsHit = snapshot.stats.shotsHit;
       this.stats.longestStreak = snapshot.stats.longestStreak;
       this.stats.killsByWeapon = { ...snapshot.stats.killsByWeapon };
+      this.stats.volleys = snapshot.stats.volleys ?? 0;
     }
+    this.hitVolleys.length = 0;
 
     if (snapshot.map.tiles && snapshot.map.integrity) {
       if (snapshot.map.tiles.length !== this.map.tiles.length) {
@@ -3166,6 +3191,7 @@ export class World {
         alive: true,
         radius: s.kind === 'fireball' ? (s.wallDamage > s.damage ? FIREBALL.objectSplashRadius / 2 : FIREBALL.radius) : 3,
         hits: new Set(s.hits),
+        volley: s.volley ?? 0,
       });
     }
 

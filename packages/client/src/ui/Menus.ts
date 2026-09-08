@@ -78,6 +78,18 @@ export interface RunResult {
   practice: string | null;
 }
 
+/** "today 14:02", "yesterday", or a short date, for the history. */
+function whenLabel(at: number): string {
+  const then = new Date(at);
+  const now = new Date();
+  const sameDay = then.toDateString() === now.toDateString();
+  const yesterday = new Date(now.getTime() - 86400000).toDateString() === then.toDateString();
+  const time = then.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (sameDay) return `today ${time}`;
+  if (yesterday) return `yesterday ${time}`;
+  return then.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
 function formatSeconds(total: number): string {
   const minutes = Math.floor(total / 60);
   const seconds = total % 60;
@@ -1075,11 +1087,11 @@ export class Menus {
       ${
         this.save.history.length > 0
           ? `<table class="history">
-              <tr><th>room</th><th>difficulty</th><th>score</th><th>level</th><th>kills</th><th>time</th></tr>
+              <tr><th>when</th><th>room</th><th>difficulty</th><th>score</th><th>level</th><th>kills</th><th>time</th></tr>
               ${this.save.history
                 .map((entry) => {
                   const room = this.rooms.find((r) => r.id === entry.roomId);
-                  return `<tr><td>${escapeHtml(room?.name ?? entry.roomId)}</td><td>${escapeHtml(this.difficultyName(entry.difficulty))}</td>
+                  return `<tr><td>${escapeHtml(whenLabel(entry.at))}</td><td>${escapeHtml(room?.name ?? entry.roomId)}</td><td>${escapeHtml(this.difficultyName(entry.difficulty))}</td>
                     <td><b>${entry.score.toLocaleString()}</b></td><td>${entry.level}</td><td>${entry.kills}</td><td>${formatSeconds(entry.seconds)}</td></tr>`;
                 })
                 .join('')}

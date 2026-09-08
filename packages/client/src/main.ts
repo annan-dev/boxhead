@@ -579,7 +579,7 @@ function recordRun(): RunResult | null {
     difficulty,
     levelsCleared: world.level - (local?.startLevel ?? 1),
     bestBefore,
-    accuracy: world.stats.shotsFired > 0 ? world.stats.shotsHit / world.stats.shotsFired : null,
+    accuracy: world.stats.shotsFired > 0 ? Math.min(1, world.stats.shotsHit / world.stats.shotsFired) : null,
     longestStreak: world.stats.longestStreak,
     favouriteWeapon: favourite ? WEAPONS[favourite[0]].name : null,
     isBest: outcome.isBest,
