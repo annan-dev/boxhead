@@ -928,7 +928,8 @@ export class Menus {
         <dt>M</dt><dd>mute</dd>
         <dt>F3</dt><dd>performance stats</dd>
         <dt>Gamepad</dt><dd>left stick or d-pad moves, right stick aims, right trigger or A fires,
-          bumpers cycle weapons, Start pauses; in the menus the d-pad moves, A chooses, B goes back</dd>
+          bumpers cycle weapons, Start quick-pauses, B or Y opens the pause menu; in the menus the
+          d-pad moves, A chooses, B goes back</dd>
       </dl>
       <h2>Surviving</h2>
       <dl class="keys">

@@ -121,6 +121,10 @@ export class Input {
   pointerY = 0;
   /** Latched once per step so a tap on a fast display is not lost. */
   private pausePressed = false;
+  /** The pad asked for the pause menu (B or Y in play). */
+  private menuPressed = false;
+  /** Fire is ignored until every fire button has been let go, after a menu. */
+  private padFireLatched = false;
   /** False while a menu owns the keyboard, so play keys are not intercepted. */
   private enabled = true;
   /** Gamepad button states from the last poll, for edge detection. */
@@ -230,6 +234,28 @@ export class Input {
     this.down.clear();
     this.pointerDown = false;
     this.clearLatches();
+    if (value) this.syncPad();
+  }
+
+  /**
+   * Reseed the pad's button memory from what is held right now, so the A
+   * that chose Resume is not read as a fresh press, and hold fire off until
+   * every fire button has been released.
+   */
+  private syncPad(): void {
+    const pad = firstGamepad();
+    this.padHeld.clear();
+    if (!pad) return;
+    for (let i = 0; i < pad.buttons.length; i++) if (pressed(pad, i)) this.padHeld.add(i);
+    this.padFireLatched = this.padHeld.has(PAD.a) || this.padHeld.has(PAD.rt);
+    this.padFire = false;
+  }
+
+  /** True once per press of the pad's menu button. */
+  consumeMenu(): boolean {
+    const value = this.menuPressed;
+    this.menuPressed = false;
+    return value;
   }
 
   /** Drop any edge-triggered presses so a fresh run starts from nothing. */
@@ -238,6 +264,7 @@ export class Input {
     this.pendingNext = false;
     this.pendingPrev = false;
     this.pausePressed = false;
+    this.menuPressed = false;
   }
 
   private readonly onKeyUp = (event: KeyboardEvent): void => {
@@ -309,9 +336,12 @@ export class Input {
         this.padAimY = my / length;
       }
 
-      this.padFire = now.has(PAD.rt) || now.has(PAD.a);
-      if (rose(PAD.rb) || rose(PAD.y)) this.pendingNext = true;
+      const fireHeld = now.has(PAD.rt) || now.has(PAD.a);
+      if (!fireHeld) this.padFireLatched = false;
+      this.padFire = fireHeld && !this.padFireLatched;
+      if (rose(PAD.rb)) this.pendingNext = true;
       if (rose(PAD.lb)) this.pendingPrev = true;
+      if (rose(PAD.b) || rose(PAD.y)) this.menuPressed = true;
     }
     if (rose(PAD.start)) this.pausePressed = true;
     this.padHeld = now;

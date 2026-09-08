@@ -681,10 +681,20 @@ const loop = new Loop(
       const networked = session instanceof NetSession;
       // A server keeps going whether or not this player is looking at a menu,
       // so a networked session must keep consuming snapshots.
+      if (menus.isOpen && !networked) return;
+      // The pad's menu button opens the pause menu, online or not.
+      if (!menus.isOpen && input.consumeMenu() && !session.world.gameOver) {
+        paused = false;
+        parkRun();
+        menus.show('pause');
+        return;
+      }
       if (!networked) {
-        if (menus.isOpen) return;
         if (input.consumePause()) paused = !paused;
-        if (paused) return;
+        if (paused) {
+          gameMusic.setScene('ducked');
+          return;
+        }
         // Let the fall play out and the scene settle before the debrief,
         // slowed right down so the moment lands.
         const { world } = session;
@@ -750,7 +760,9 @@ const loop = new Loop(
       const { camera, renderer, hud } = run;
       // A world that is not stepping has nothing to interpolate toward; a
       // varying alpha would shuttle everything between its last two positions.
-      const frozen = !(run.session instanceof NetSession) && (paused || menus.isOpen);
+      // A hit stop holds the picture exactly where it is, not part-way to
+      // the next step.
+      const frozen = !(run.session instanceof NetSession) && (paused || menus.isOpen || hitStop > 0);
       const blend = frozen ? 1 : alpha;
       camera.interpolate(blend);
       renderer.draw(ctx, camera, blend);
