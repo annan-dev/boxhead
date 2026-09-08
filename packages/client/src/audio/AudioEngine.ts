@@ -266,6 +266,15 @@ function synthesize(context: AudioContext, destination: AudioNode, name: string)
       tone('triangle', 180, 0, 0.14, 0.16, 90);
       thump(0, 0.1, 0.12, 200, 70);
       break;
+    case 'UI.Hover':
+      // The faintest tick, high and dry, as the focus lands on a button.
+      tone('triangle', 1900, 0, 0.025, 0.025, 1500);
+      break;
+    case 'UI.Click':
+      // A short woody knock for a choice made.
+      tone('square', 520, 0, 0.05, 0.05, 260);
+      thump(0, 0.06, 0.06, 240, 120);
+      break;
     case 'UI.Drop':
       // A falling minor third, quiet, so a lapse is felt rather than nagged.
       tone('triangle', 440, 0, 0.09, 0.05);

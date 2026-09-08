@@ -234,6 +234,9 @@ const menus = new Menus(app, pack, rooms, save, screens, {
   onPadSeen: () => {
     input.padSeen = true;
   },
+  onUiSound: (kind) => {
+    audio.play(kind === 'hover' ? 'UI.Hover' : 'UI.Click', 0, 0, 1, { x: 0, y: 0, halfWidth: 1 });
+  },
   // The menus own the keyboard while they are up; play keys must not leak
   // through, and nothing pressed there may fire once play resumes.
   onScreen: (screen) => {

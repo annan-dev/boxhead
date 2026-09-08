@@ -16,6 +16,7 @@
 import {
   WEAPONS,
   WEAPON_ORDER,
+  levelDef,
   nextAward,
   statsFor,
   type Player,
@@ -600,12 +601,23 @@ export class Hud {
       ctx.strokeText(text, centre, y);
       ctx.fillText(text, centre, y);
       if (message.kind === 'level') {
-        // The menus' blood-red rule under a heading.
+        // The menus' blood-red rule under a heading, and what the wave holds.
         const ruleWidth = Math.min(160 * s, ctx.measureText(text).width * 0.5);
         ctx.fillStyle = `rgba(224,17,31,${alpha})`;
         ctx.fillRect(centre - ruleWidth / 2, y + 7 * s, ruleWidth, 3 * s);
+        if (world.mode !== 'deathmatch') {
+          const def = levelDef(world.level);
+          const devils = world.devilsEnabled ? def.devilTotal : 0;
+          const line = `${def.zombieTotal} ZOMBIES${devils > 0 ? `   ·   ${devils} ${devils === 1 ? 'DEVIL' : 'DEVILS'}` : ''}`;
+          ctx.font = `700 ${10 * s}px ${BODY}`;
+          ctx.lineWidth = 3 * s;
+          ctx.strokeStyle = `rgba(0,0,0,${alpha * 0.85})`;
+          ctx.fillStyle = `rgba(230,207,148,${alpha})`;
+          ctx.strokeText(line, centre, y + 24 * s);
+          ctx.fillText(line, centre, y + 24 * s);
+        }
       }
-      y += (message.kind === 'level' ? 40 : 24) * s;
+      y += (message.kind === 'level' ? 52 : 24) * s;
     }
     ctx.textAlign = 'left';
   }

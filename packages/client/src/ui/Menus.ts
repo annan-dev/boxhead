@@ -147,6 +147,8 @@ export interface MenuCallbacks {
   onKeys: () => void;
   /** A gamepad spoke on a menu, so the hints can name it. */
   onPadSeen?: () => void;
+  /** A control was hovered or chosen; the host plays the tick. */
+  onUiSound?: (kind: 'hover' | 'click') => void;
   /** Fired whenever a screen opens or the menus close. */
   onScreen: (screen: Screen) => void;
   /** Join a server; `address` is whatever the player typed. */
@@ -401,6 +403,9 @@ const STYLE = `
   .tab:hover, .tab:focus { outline: none; color: var(--bone); border-color: var(--brass-dim); }
   .tab.on { color: #f3e3b6; border-color: var(--brass); border-bottom-color: var(--red); box-shadow: inset 0 0 18px var(--brass-glow), 0 0 12px var(--brass-glow); }
   .ticks span { font: 700 9px "Segoe UI", system-ui, sans-serif; color: var(--muted); letter-spacing: .12em; text-transform: uppercase; }
+  /* How to play: two columns where there is room, so it fits a screen. */
+  .howto { display: grid; grid-template-columns: 1fr; gap: 0 36px; }
+  @media (min-width: 1180px) { .howto { grid-template-columns: 1fr 1fr; } .howto .keys { grid-template-columns: 120px 1fr; margin-bottom: 14px; } }
   .keygrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0 30px; max-width: 700px; }
   .keygrid .row { margin-bottom: 10px; }
   .keygrid label { min-width: 140px; }
@@ -555,6 +560,24 @@ export class Menus {
       }
     });
     window.setInterval(() => this.pollPad(), 50);
+
+    // One listener for every button on every screen: a tick as the pointer
+    // or the focus lands, a knock as it is pressed.
+    const control = (target: EventTarget | null): boolean => {
+      const el = target as HTMLElement | null;
+      return !!el?.closest?.('.btn, .card:not(.locked), .tab, button.key, .back, select, input[type=checkbox]');
+    };
+    this.root.addEventListener('pointerover', (event) => {
+      const el = (event.target as HTMLElement | null)?.closest?.('.btn, .card:not(.locked), .tab, button.key, .back');
+      const from = (event as PointerEvent & { relatedTarget: EventTarget | null }).relatedTarget as HTMLElement | null;
+      if (el && !(from && el.contains(from))) this.callbacks.onUiSound?.('hover');
+    });
+    this.root.addEventListener('focusin', (event) => {
+      if (control(event.target)) this.callbacks.onUiSound?.('hover');
+    });
+    this.root.addEventListener('click', (event) => {
+      if (control(event.target)) this.callbacks.onUiSound?.('click');
+    });
   }
 
   /** Everything on the current screen that can take focus, in reading order. */
@@ -1058,6 +1081,8 @@ export class Menus {
       <button class="back">&larr; back</button>
       <h2>How to play</h2>
       <div class="panel"><div class="paper">
+      <div class="howto">
+      <div>
       <dl class="keys">
         <dt>${escapeHtml(this.keyLabel(['up', 'left', 'down', 'right']))}</dt><dd>move</dd>
         <dt>mouse</dt><dd>aim</dd>
@@ -1079,6 +1104,8 @@ export class Menus {
           head: no zombies, the whole arsenal owned but unloaded until a crate is found, first to twenty
           kills wins.</dd>
       </dl>
+      </div>
+      <div>
       <h2>Surviving</h2>
       <dl class="keys">
         <dt>Multiplier</dt><dd>Every kill raises it by one; stop killing and it drains,
@@ -1096,6 +1123,8 @@ export class Menus {
         <dt>Barricades</dt><dd>Fake walls (key 6) hold zombies off for good; only devils
           and your own fire bring them down. Wall yourself in and the wave never ends.</dd>
       </dl>
+      </div>
+      </div>
       </div></div>
     `);
     this.backButton(inner, this.origin);
