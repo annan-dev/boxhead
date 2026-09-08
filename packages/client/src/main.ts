@@ -335,7 +335,15 @@ function offerTips(world: World, me: Player): void {
 const presenter: Presenter = {
   playSound: (event: SoundEvent) => {
     if (!run) return;
-    const { camera } = run;
+    const { camera, session } = run;
+    // A grunt is the hurt player's own: a partner's plays quietly where they
+    // stand, never full in the centre as if it were you.
+    if (event.name === 'UI.Hurt') {
+      const mine = session.world.players.some(
+        (p) => p.id === event.ownerId && (p.index === session.localPlayerIndex || (session instanceof LocalSession && p.index < session.localSeats)),
+      );
+      if (!mine) return;
+    }
     const listener = { x: camera.x, y: camera.y, halfWidth: camera.viewWidth / 2 };
     audio.play(event.name, event.x, event.y, event.rate, listener);
   },
@@ -741,8 +749,10 @@ const loop = new Loop(
       // A server keeps going whether or not this player is looking at a menu,
       // so a networked session must keep consuming snapshots.
       if (menus.isOpen && !networked) return;
-      // The pad's menu button opens the pause menu, online or not.
-      if (!menus.isOpen && input.consumeMenu() && !session.world.gameOver) {
+      // The pad's menu button opens the pause menu, online or not; on a
+      // server, where nothing can pause, the quick-pause key does the same.
+      const wantsMenu = input.consumeMenu() || (networked && input.consumePause());
+      if (!menus.isOpen && wantsMenu && !session.world.gameOver) {
         paused = false;
         parkRun();
         menus.show('pause');
