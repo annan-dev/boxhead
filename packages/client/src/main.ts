@@ -246,6 +246,84 @@ function showHint(text: string, ms = 4200): void {
   hintTimer = window.setTimeout(() => hint.classList.remove('on'), ms);
 }
 
+/**
+ * One-time tips, each shown the first time its moment arrives in a
+ * single-player run and never again: the things a new player would
+ * otherwise learn by dying. The how-to-play screen covers the rest.
+ */
+interface Tip {
+  id: string;
+  text: string;
+  when: (world: World, me: Player) => boolean;
+}
+const unlocked = (me: Player, id: string): boolean => me.weapons.get(id as never)?.unlocked === true;
+const TIPS: Tip[] = [
+  {
+    id: 'crate',
+    text: 'a <b>crate</b> &mdash; walk over it for ammo, or health when you are hurt',
+    when: (world) => world.pickups.some((p) => p.alive && p.hiddenUntil === 0),
+  },
+  {
+    id: 'drain',
+    text: 'the <b>multiplier drains</b> when you stop killing &mdash; keep the streak up for the next award',
+    when: (world) => world.multiplier >= 4 && world.multiplierTicksLeft < world.multiplierWindow * 0.4,
+  },
+  {
+    id: 'devil',
+    text: 'a <b>devil</b> &mdash; it throws fire and razes walls; shoot it first',
+    when: (world) => world.enemies.some((e) => e.state === 'alive' && e.defId === 'devil'),
+  },
+  {
+    id: 'barrel',
+    text: '<b>barrels</b> (4) drop one cell ahead &mdash; zombies cannot pass, one shot sets it off',
+    when: (_, me) => unlocked(me, 'barrel'),
+  },
+  {
+    id: 'grenade',
+    text: '<b>grenade</b> (5) &mdash; hold to throw farther, release to lob',
+    when: (_, me) => unlocked(me, 'grenade'),
+  },
+  {
+    id: 'wall',
+    text: '<b>fake walls</b> (6) hold zombies off for good; only devils and your own fire bring them down',
+    when: (_, me) => unlocked(me, 'fakewall'),
+  },
+  {
+    id: 'mine',
+    text: '<b>mines</b> (7) arm once you step off; whatever treads on one sets it off',
+    when: (_, me) => unlocked(me, 'mine'),
+  },
+  {
+    id: 'charge',
+    text: '<b>charge packs</b> (9) &mdash; press to place, press again to blow them all',
+    when: (_, me) => unlocked(me, 'chargepack'),
+  },
+  {
+    id: 'hurt',
+    text: '<b>health comes back</b> on its own &mdash; back off and let it',
+    when: (_, me) => me.life < me.maxLife * 0.4,
+  },
+];
+let tipCooldown = 0;
+
+/** Show the first tip whose moment has come, one at a time, spaced out. */
+function offerTips(world: World, me: Player): void {
+  if (!save.tips) return;
+  if (tipCooldown > 0) {
+    tipCooldown -= 1;
+    return;
+  }
+  if (hint.classList.contains('on')) return;
+  for (const tip of TIPS) {
+    if (save.hasSeenTip(tip.id) || !tip.when(world, me)) continue;
+    save.markTip(tip.id);
+    showHint(tip.text, 5200);
+    // Leave a gap after one tip so two never run together.
+    tipCooldown = 400;
+    return;
+  }
+}
+
 /** Sound and rebinding, on behalf of whichever session is running. */
 const presenter: Presenter = {
   playSound: (event: SoundEvent) => {
@@ -311,6 +389,7 @@ function startRun(roomId: string, characterId: string): void {
   menus.inMatch = false;
   menus.show('none');
   showHint(controlsHint());
+  tipCooldown = 250;
 }
 
 function controlsHint(): string {
@@ -564,6 +643,8 @@ const loop = new Loop(
         }
         if (world.hurt > lastHurt + 0.05 && save.rumble) input.rumble(140, 0.9, 0.5);
         lastHurt = world.hurt;
+        const me = world.players[run.session.localPlayerIndex];
+        if (me && me.state === 'alive' && !world.gameOver) offerTips(world, me);
       }
       // `step` may have replaced the world (a match started); re-read.
       if (!run) return;

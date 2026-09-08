@@ -57,6 +57,10 @@ export interface SaveState {
   rumble?: boolean | undefined;
   /** Key bindings by action; absent actions use the defaults. */
   keys?: Record<string, string[]> | undefined;
+  /** One-time tips already shown. */
+  tipsSeen?: string[] | undefined;
+  /** Whether the one-time tips show at all. */
+  tips?: boolean | undefined;
 }
 
 function defaults(): SaveState {
@@ -202,6 +206,31 @@ export class SaveData {
 
   get keys(): Record<string, string[]> {
     return this.state.keys ?? {};
+  }
+
+  get tips(): boolean {
+    return this.state.tips ?? true;
+  }
+
+  setTips(value: boolean): void {
+    this.state.tips = value;
+    this.persist();
+  }
+
+  hasSeenTip(id: string): boolean {
+    return (this.state.tipsSeen ?? []).includes(id);
+  }
+
+  markTip(id: string): void {
+    if (this.hasSeenTip(id)) return;
+    this.state.tipsSeen = [...(this.state.tipsSeen ?? []), id];
+    this.persist();
+  }
+
+  /** Forget every tip so they show again, for the options screen. */
+  resetTips(): void {
+    delete this.state.tipsSeen;
+    this.persist();
   }
 
   /** Bind an action to one key, replacing whatever it had. */

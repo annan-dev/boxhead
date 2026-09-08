@@ -1005,6 +1005,11 @@ export class Menus {
         <label for="rumble">Gamepad rumble</label>
         <input type="checkbox" id="rumble" ${this.save.rumble ? 'checked' : ''}>
       </div>
+      <div class="row">
+        <label for="tips">One-time tips</label>
+        <input type="checkbox" id="tips" ${this.save.tips ? 'checked' : ''}>
+        <button class="key" id="resetTips" type="button">show them again</button>
+      </div>
       <h2 style="margin-top:30px">Controls</h2>
       <p class="hint" style="margin:0 0 12px">Click a key to change it, then press the new one. Weapons stay on 1 to 0.</p>
       <div class="keygrid">
@@ -1074,6 +1079,13 @@ export class Menus {
     rumble.addEventListener('change', () => {
       this.save.setRumble(rumble.checked);
       this.callbacks.onFeel();
+    });
+    const tips = inner.querySelector<HTMLInputElement>('#tips')!;
+    tips.addEventListener('change', () => this.save.setTips(tips.checked));
+    inner.querySelector<HTMLButtonElement>('#resetTips')!.addEventListener('click', () => {
+      this.save.resetTips();
+      this.save.setTips(true);
+      this.renderOptions();
     });
 
     const difficulty = inner.querySelector<HTMLSelectElement>('#difficulty')!;
