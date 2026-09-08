@@ -396,7 +396,7 @@ modern shooters, and the grenade meets the arena by height:
   anything shorter than it is at that moment (cubes, fake walls, barrels) and
   bounces off anything taller (wall posts, the arena's edge). A dashed arc
   with the landing point and blast reach shows while the key is held. One
-  integrator () serves the sim and the arc.
+  integrator (packages/shared/src/sim/Grenade.ts) serves the sim and the arc.
 - **Two slots**: primary (a gun) on 1, secondary (a placeable) on 2; tap to
   take it in hand, hold for a radial wheel and release toward a choice.
   Q/E and the mouse wheel cycle guns only. Right click uses the secondary
@@ -406,4 +406,4 @@ modern shooters, and the grenade meets the arena by height:
 - **Pings**: F pings the aim; held, a wheel of marks (enemy, going here,
   crate, hold here, help, devil). Relayed through the server as   messages, rate-limited to four a second; drawn in the arena, at the edge,
   and on the minimap. The co-op harness reports .
-- Harness scenarios ,  and  capture the new HUD.
+- Harness scenarios grenade-arc, wheel and ping capture the new HUD.
