@@ -272,6 +272,7 @@ test('a malformed or absurd command never reaches the simulation', () => {
   assert.ok(Number.isFinite(player.angle));
   const text = JSON.stringify(world.snapshot().players);
   assert.ok(!text.includes('null'), 'a player field became null');
+  room.stop();
 });
 
 test('a non-finite tick does not lock the sender out', () => {
@@ -286,4 +287,5 @@ test('a non-finite tick does not lock the sender out', () => {
   const x = player.x;
   room.advance(2);
   assert.ok(player.x > x, 'a later valid command was ignored');
+  room.stop();
 });

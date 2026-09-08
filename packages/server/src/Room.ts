@@ -484,6 +484,9 @@ export class Room {
     // A timer at half the tick with an accumulator keeps the tick rate honest
     // even though setInterval is not precise.
     this.timer = setInterval(() => this.pump(), Math.max(1, Math.floor(this.tickMs / 2)));
+    // The listening socket keeps a real server alive; a room's clock alone
+    // must not, or a test that forgets to stop one never exits.
+    this.timer.unref();
   }
 
   /** Restart a clock that was held while the room stood empty mid-match. */
