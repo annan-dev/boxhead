@@ -221,7 +221,7 @@ const STYLE = `
   .menu.hero .bg { background: ${GRAIN}, transparent; opacity: .55; }
   .menu.hero .bg::before { background: radial-gradient(ellipse 62% 58% at 50% 40%, transparent 35%, rgba(0,0,0,.72) 100%); }
   .menu.hero .bg::after { display: none; }
-  .menu.hero .inner { padding: 6vh 0 70px 7vw; max-width: none; text-align: left; }
+  .menu.hero .inner { padding: 6vh 0 40px 7vw; max-width: none; text-align: left; }
   .menu.hero .inner::before { content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none;
               background: linear-gradient(90deg, rgba(6,6,9,.94) 0%, rgba(6,6,9,.86) 28%, rgba(6,6,9,.35) 48%, transparent 64%); }
   .menu.hero h1 { text-align: left; }
@@ -426,6 +426,7 @@ const STYLE = `
   .note.bad { background: rgba(224,17,31,.12); border-color: rgba(224,17,31,.6); color: #ff8791; }
   .seats { display: grid; gap: 6px; margin: 0 0 12px; max-width: 560px; }
   .lobby .row { margin-bottom: 9px; }
+  .row label.pair { margin-left: 18px; min-width: 0; }
   .panel.lobby { padding: 10px 18px 6px; }
   .lobby h2 { margin-bottom: 10px; }
   .seat { display: flex; align-items: center; gap: 12px; padding: 8px 14px; border: 1px solid #000;
@@ -1718,7 +1719,7 @@ export class Menus {
         <select id="lroom" ${canEdit ? '' : 'disabled'}>
           ${view.rooms.map((r) => `<option value="${r.id}" ${r.id === view.config.roomId ? 'selected' : ''}>${escapeHtml(r.name)}</option>`).join('')}
         </select>
-        <label for="lmode" style="margin-left:18px;min-width:0">Mode</label>
+        <label for="lmode" class="pair">Mode</label>
         <select id="lmode" ${canEdit ? '' : 'disabled'}>
           <option value="coop" ${view.config.mode === 'coop' ? 'selected' : ''}>Co-op &mdash; survive together</option>
           <option value="deathmatch" ${view.config.mode === 'deathmatch' ? 'selected' : ''}>Deathmatch &mdash; every player for themselves</option>
@@ -1729,7 +1730,7 @@ export class Menus {
         <select id="ldiff" ${canEdit ? '' : 'disabled'}>
           ${DIFFICULTIES.map((d) => `<option value="${d.id}" ${d.id === view.config.difficulty ? 'selected' : ''}>${d.name}</option>`).join('')}
         </select>
-        <label for="lspeed" style="margin-left:18px;min-width:0">Game speed</label>
+        <label for="lspeed" class="pair">Game speed</label>
         <select id="lspeed" ${canEdit ? '' : 'disabled'}>
           ${GAME_SPEEDS.map((sp) => `<option value="${sp.id}" ${sp.id === view.config.gameSpeed ? 'selected' : ''}>${sp.name}</option>`).join('')}
         </select>
@@ -1737,7 +1738,7 @@ export class Menus {
       <div class="row">
         <label for="ldevils">Devils</label>
         <input type="checkbox" id="ldevils" ${view.config.devils ? 'checked' : ''} ${canEdit ? '' : 'disabled'}>
-        <label for="lstart" style="margin-left:18px">Practice start</label>
+        <label for="lstart" class="pair">Practice start</label>
         <input type="range" id="lstart" min="1" max="60" value="${practiceStart(view.config) || 1}" ${canEdit ? '' : 'disabled'} style="max-width:160px">
         <span id="lstartVal" class="hint">${practiceStart(view.config) ? `level ${practiceStart(view.config)} &middot; nothing is recorded` : 'off'}</span>
       </div>
@@ -1799,7 +1800,7 @@ export class Menus {
     // One run is the row beneath; the line earns its place from the second.
     const record = line && line.runs > 1 ? line : null;
     // A quick death on a preset never cleared here: the wave is the lesson, so practising it leads.
-    const quickDeath = SaveData.isQuickDeath(result);
+    const quickDeath = SaveData.isQuickDeath(result, line, result.level - result.levelsCleared);
     const verdict = result.practice
       ? `<span class="badge strong">&#9888; practice run (${result.practice}) &mdash; not recorded</span>${
           this.save.startLevel ? ' <button class="badge chip" id="practiceOff" type="button">practice off</button>' : ''

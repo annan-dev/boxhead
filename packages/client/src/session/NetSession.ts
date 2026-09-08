@@ -409,10 +409,12 @@ export class NetSession implements Session {
         case 'popup':
           if (event.seq <= this.lastPopupSeq) break;
           this.lastPopupSeq = event.seq;
+          this.eventsSeen.popups += 1;
           this.world.popups.push({ seq: event.seq, x: event.x, y: event.y, text: event.text, life: 45, kind: event.kind });
           if (this.world.popups.length > 24) this.world.popups.shift();
           break;
         case 'message':
+          this.eventsSeen.messages += 1;
           if (event.seq <= this.lastMessageSeq) break;
           this.lastMessageSeq = event.seq;
           this.world.messages.push({ seq: event.seq, text: event.text, kind: event.kind, life: event.life });
@@ -435,6 +437,9 @@ export class NetSession implements Session {
     const inFlight = Math.ceil(this.net.rttMs / this.stepMs) + 1;
     if (this.history.length - inFlight > 4) this.skipSteps = 1;
   }
+
+  /** Events the server sent this client, duplicates included, for the harness. */
+  readonly eventsSeen = { popups: 0, messages: 0 };
 
   stats(): string[] {
     return [

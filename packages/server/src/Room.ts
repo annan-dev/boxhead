@@ -579,8 +579,7 @@ export class Room {
         if (message.seq <= this.lastForwardedSeq) continue;
         this.pushEvent({ type: 'message', tick, seq: message.seq, text: message.text, kind: message.kind, life: message.life });
       }
-      // Everything the new world has already said (its opening banner) is still owed to the clients.
-    this.lastForwardedSeq = 0;
+      this.lastForwardedSeq = world.cosmeticSequence;
     }
   }
 

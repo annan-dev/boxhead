@@ -526,8 +526,15 @@ export class SaveData {
    * A death inside thirty seconds on a run that cleared fewer than three
    * waves: the wave was the lesson, so practising it should lead.
    */
-  static isQuickDeath(result: { practice: string | null; seconds: number; levelsCleared: number; level: number }): boolean {
-    return !result.practice && result.seconds < 30 && result.levelsCleared < UNLOCK_CLEARS && result.level >= 2;
+  static isQuickDeath(
+    result: { practice: string | null; seconds: number; levelsCleared: number; level: number },
+    /** What the player has done here at this preset before; a veteran is not sent to practise. */
+    record: { bestLevel: number } | null = null,
+    startLevel = 1,
+  ): boolean {
+    if (result.practice || result.seconds >= 30 || result.level < 2) return false;
+    if (record && record.bestLevel >= startLevel + UNLOCK_CLEARS) return false;
+    return result.levelsCleared < UNLOCK_CLEARS;
   }
 
   /** Where a preset opens, for a room the player has not tried at it. */

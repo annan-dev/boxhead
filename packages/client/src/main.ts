@@ -823,7 +823,10 @@ const loop = new Loop(
           if (p && p.state === 'alive') lowest = Math.min(lowest, p.life / p.maxLife);
         }
         const beat = run.hud.heartbeat(lowest);
-        if (beat > 0.5 && lastBeat <= 0.5) audio.play('UI.Heart', 0, 0, 1, { x: 0, y: 0, halfWidth: 1 });
+        // On each rise: the lub at full, the dub (which never passes 0.55) softer.
+        if (beat > 0.3 && lastBeat <= 0.3) {
+          audio.play(beat > 0.6 || Hud.heartbeatAt(world.tick + 1, lowest) > 0.6 ? 'UI.Heart' : 'UI.HeartSoft', 0, 0, 1, { x: 0, y: 0, halfWidth: 1 });
+        }
         lastBeat = beat;
         const me = world.players[run.session.localPlayerIndex];
         if (me && me.state === 'alive' && !world.gameOver) offerTips(world, me);

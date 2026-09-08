@@ -267,8 +267,12 @@ function synthesize(context: AudioContext, destination: AudioNode, name: string)
       thump(0, 0.1, 0.12, 200, 70);
       break;
     case 'UI.Heart':
-      // A muffled thump under the mix, once a beat while health is low.
+      // A muffled thump under the mix: the lub.
       thump(0, 0.16, 0.14, 70, 40);
+      break;
+    case 'UI.HeartSoft':
+      // The dub, softer and a touch higher.
+      thump(0, 0.12, 0.08, 80, 45);
       break;
     case 'UI.Hover':
       // The faintest tick, high and dry, as the focus lands on a button.

@@ -111,14 +111,12 @@ export class Hud {
     this.lastLevel = world.level;
 
     const player = world.players[this.localPlayerIndex];
-    // The heartbeat answers whichever seat on this screen is worst off.
-    let worst: Player | null = null;
+    // Every seat on this screen that is low beats, each on its own side.
     for (let seat = 0; seat < Math.max(1, this.localSeats); seat++) {
       const local = world.players[seat === 0 ? this.localPlayerIndex : seat];
       if (!local || local.state !== 'alive') continue;
-      if (!worst || local.life / local.maxLife < worst.life / worst.maxLife) worst = local;
+      this.drawLowHealth(ctx, local, this.localSeats >= 2 ? camera.worldToScreen(local.x, local.y).x : null);
     }
-    if (worst) this.drawLowHealth(ctx, worst, this.localSeats >= 2 ? camera.worldToScreen(worst.x, worst.y).x : null);
 
     this.stripExtents.length = 0;
     this.drawPopups(ctx, camera, scale);
@@ -333,6 +331,8 @@ export class Hud {
       for (const strip of this.lastStripExtents) {
         if (x > strip.left - 8 * s && x < strip.right + 8 * s && y > strip.top) y = strip.top;
       }
+      // The hint bar sits above the strip for a few seconds; keep off it too.
+      if (Math.abs(x - width / 2) < 240 * s && y > height - 112 * s) y = height - 112 * s;
       x = Math.max(margin, Math.min(width - margin, x));
       y = Math.max(margin, Math.min(height - margin, y));
       // Close threats draw bigger and brighter; far ones fade toward the edge.
