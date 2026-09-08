@@ -51,6 +51,32 @@ export class Hud {
   localSeats = 1;
   /** Outlined markers and a framed heartbeat, so nothing rests on colour alone. */
   highContrast = false;
+  /** Where the weapon strips ended up this frame, so markers can keep clear. */
+  private stripExtents: Array<{ left: number; right: number; top: number }> = [];
+
+  /**
+   * Lay a strip out for a seat: how wide each slot can be so the whole
+   * arsenal fits its half of the screen (or the whole of it), and where it
+   * sits. One place, so the drawing and the tests agree.
+   */
+  static layoutStrip(
+    canvasWidth: number,
+    s: number,
+    slots: number,
+    side: number,
+  ): { slotWidth: number; gap: number; left: number; width: number; centre: number } {
+    const centre = side === 0 ? canvasWidth / 2 : canvasWidth * (side < 0 ? 0.27 : 0.73);
+    // The room a strip has: twice the distance to whichever is nearer, the
+    // screen edge or the middle line, less a margin, so two never cross.
+    const room = side === 0
+      ? canvasWidth - 24 * s
+      : 2 * Math.min(centre, Math.abs(canvasWidth / 2 - centre)) - 16 * s;
+    const natural = (side === 0 ? 64 : 52) * s;
+    const gap = 5 * s;
+    const slotWidth = Math.max(30 * s, Math.min(natural, (room - (slots - 1) * gap) / Math.max(1, slots)));
+    const width = slots * slotWidth + (slots - 1) * gap;
+    return { slotWidth, gap, left: centre - width / 2, width, centre };
+  }
 
   constructor(
     private readonly world: World,
@@ -86,6 +112,7 @@ export class Hud {
     const player = world.players[this.localPlayerIndex];
     if (player && player.state === 'alive') this.drawLowHealth(ctx, player);
 
+    this.stripExtents.length = 0;
     this.drawPopups(ctx, camera, scale);
     for (const other of world.players) {
       if (!other.connected) continue;
@@ -110,7 +137,10 @@ export class Hud {
     }
     this.drawScore(ctx, scale);
     this.drawMessages(ctx, scale);
+    this.lastStripExtents = this.stripExtents.map((e) => ({ ...e }));
   }
+
+  private lastStripExtents: Array<{ left: number; right: number; top: number }> = [];
 
   /** A slab with a hairline of brass, the way the menu panels are framed. */
   private slab(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, s: number, accent = BRASS): void {
@@ -215,10 +245,41 @@ export class Hud {
       if (!current || d < current.d || (devil && !current.devil)) nearest[bucket] = { d, angle, devil };
       any = true;
     }
-    if (!any) return;
+    // A teammate out of view is worth a marker too, in bone, so a pair can find each other.
+    const partners: Array<{ angle: number; d: number }> = [];
+    for (const other of this.world.players) {
+      if (other === player || !other.connected || other.state === 'dead') continue;
+      const screen = camera.worldToScreen(other.x, other.y);
+      if (screen.x > -10 && screen.x < width + 10 && screen.y > -10 && screen.y < height + 10) continue;
+      partners.push({ angle: Math.atan2(other.y - player.y, other.x - player.x), d: Math.hypot(other.x - player.x, other.y - player.y) });
+    }
+    if (!any && partners.length === 0) return;
 
     ctx.save();
     ctx.lineJoin = 'round';
+    for (const partner of partners) {
+      const cos = Math.cos(partner.angle);
+      const sin = Math.sin(partner.angle);
+      const tx = cos > 0 ? (width - margin - at.x) / cos : cos < 0 ? (margin - at.x) / cos : Infinity;
+      const ty = sin > 0 ? (height - margin - at.y) / sin : sin < 0 ? (margin - at.y) / sin : Infinity;
+      const t = Math.max(0, Math.min(tx, ty));
+      const x = Math.max(margin, Math.min(width - margin, at.x + cos * t));
+      const y = Math.max(margin, Math.min(height - margin, at.y + sin * t));
+      ctx.translate(x, y);
+      ctx.rotate(partner.angle);
+      ctx.beginPath();
+      ctx.moveTo(9 * s, 0);
+      ctx.lineTo(-6 * s, -6 * s);
+      ctx.lineTo(-3 * s, 0);
+      ctx.lineTo(-6 * s, 6 * s);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(233,226,208,0.85)';
+      ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+      ctx.lineWidth = 1.5 * s;
+      ctx.fill();
+      ctx.stroke();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+    }
     for (const marker of nearest) {
       if (!marker) continue;
       // Slide the marker along the ray from the player until it meets the
@@ -233,9 +294,9 @@ export class Hud {
       // Keep out of the score panel (top right) and the weapon strip (bottom
       // centre): a marker that lands in either is pushed to the panel's edge.
       if (x > width - 240 * s && y < 84 * s) y = 84 * s;
-      const strips = this.localSeats >= 2 ? [width * 0.27, width * 0.73] : [width / 2];
-      const stripHalf = this.localSeats >= 2 ? 170 * s : 300 * s;
-      if (strips.some((cx) => Math.abs(x - cx) < stripHalf) && y > height - 72 * s) y = height - 72 * s;
+      for (const strip of this.lastStripExtents) {
+        if (x > strip.left - 8 * s && x < strip.right + 8 * s && y > strip.top) y = strip.top;
+      }
       x = Math.max(margin, Math.min(width - margin, x));
       y = Math.max(margin, Math.min(height - margin, y));
       // Close threats draw bigger and brighter; far ones fade toward the edge.
@@ -353,15 +414,12 @@ export class Hud {
   ): void {
     const slots = WEAPON_ORDER.filter((id) => player.weapons.get(id)?.unlocked);
     // A full arsenal must still fit a narrow window, or half of one.
-    const room = side === 0 ? ctx.canvas.width - 24 * s : ctx.canvas.width / 2 - 16 * s;
-    const natural = (side === 0 ? 64 : 52) * s;
-    const gap = 5 * s;
-    const slotWidth = Math.max(36 * s, Math.min(natural, (room - (slots.length - 1) * gap) / Math.max(1, slots.length)));
+    const layout = Hud.layoutStrip(ctx.canvas.width, s, slots.length, side);
+    const { slotWidth, gap, centre } = layout;
     const slotHeight = 34 * s;
-    const totalWidth = slots.length * slotWidth + (slots.length - 1) * gap;
-    const centre = side === 0 ? ctx.canvas.width / 2 : ctx.canvas.width * (side < 0 ? 0.27 : 0.73);
-    let x = centre - totalWidth / 2;
+    let x = layout.left;
     const y = ctx.canvas.height - 16 * s - slotHeight;
+    this.stripExtents.push({ left: layout.left, right: layout.left + layout.width, top: y - 12 * s });
     if (label) {
       ctx.font = `700 ${9 * s}px ${BODY}`;
       ctx.textAlign = 'center';
@@ -433,9 +491,11 @@ export class Hud {
           s,
         );
       });
+      ctx.font = `700 ${8 * s}px ${BODY}`;
       if (world.gameOver && world.winnerIndex >= 0) {
-        ctx.font = `700 ${8 * s}px ${BODY}`;
         this.text(ctx, `${this.nameOf(world.winnerIndex) ?? `P${world.winnerIndex + 1}`} WINS`, x + 10 * s, y + height - 6 * s, BRASS_BRIGHT, s);
+      } else if (world.killTarget !== null) {
+        this.text(ctx, `FIRST TO ${world.killTarget}`, x + 10 * s, y + height - 6 * s, BRASS_BRIGHT, s);
       }
       return;
     }

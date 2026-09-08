@@ -10,6 +10,7 @@
  * has and draws the result.
  */
 import {
+  CHARACTERS,
   ROOMS,
   TICK_MS,
   WEAPONS,
@@ -582,7 +583,7 @@ function recordRun(): RunResult | null {
       versus: {
         winnerIndex: world.winnerIndex,
         kills: world.players.map((p) => p.kills),
-        names: world.players.map((p, i) => `Player ${i + 1}`),
+        names: world.players.map((p, i) => `P${i + 1} ${CHARACTERS.find((c) => c.id === p.characterId)?.name ?? ''}`.trim()),
       },
     };
   }

@@ -347,6 +347,11 @@ export class World {
     return this.devilsActive;
   }
 
+  /** Player kills that end a versus match, or null where nothing does. */
+  get killTarget(): number | null {
+    return MODES[this.mode].killTarget;
+  }
+
   /** Creatures still to kill this level: unspawned plus those still standing. */
   get waveRemaining(): number {
     const queued =
