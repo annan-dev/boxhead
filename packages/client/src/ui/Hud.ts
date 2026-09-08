@@ -49,6 +49,8 @@ export class Hud {
   sizeScale = 1;
   /** Seats driven from this screen, each of which gets a weapon strip. */
   localSeats = 1;
+  /** Outlined markers and a framed heartbeat, so nothing rests on colour alone. */
+  highContrast = false;
 
   constructor(
     private readonly world: World,
@@ -97,6 +99,10 @@ export class Hud {
     if (player && pointer) this.drawReticle(ctx, player, pointer, scale);
     if (this.localSeats >= 2) {
       const second = world.players[1];
+      if (second && second.state === 'alive') this.drawFacing(ctx, camera, second, scale);
+    }
+    if (this.localSeats >= 2) {
+      const second = world.players[1];
       if (player) this.drawWeapons(ctx, player, scale, -1, 'P1');
       if (second) this.drawWeapons(ctx, second, scale, 1, 'P2');
     } else if (player) {
@@ -126,6 +132,28 @@ export class Hud {
   }
 
   /**
+   * The second seat aims the way it walks and has no pointer, so a short
+   * bone tick past the gun says where its shots will go.
+   */
+  private drawFacing(ctx: CanvasRenderingContext2D, camera: Camera, player: Player, s: number): void {
+    const at = camera.worldToScreen(player.x, player.y - 10);
+    const reach = 26 * camera.zoom;
+    const cos = Math.cos(player.angle);
+    const sin = Math.sin(player.angle);
+    ctx.save();
+    ctx.lineCap = 'round';
+    for (const pass of [0, 1]) {
+      ctx.lineWidth = (pass === 0 ? 4 : 2) * s;
+      ctx.strokeStyle = pass === 0 ? 'rgba(0,0,0,0.5)' : 'rgba(233,226,208,0.85)';
+      ctx.beginPath();
+      ctx.moveTo(at.x + cos * reach, at.y + sin * reach);
+      ctx.lineTo(at.x + cos * (reach + 9 * s), at.y + sin * (reach + 9 * s));
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  /**
    * A heartbeat of red from the edges once health is low. The world's own
    * hurt vignette answers a hit; this one keeps nagging until the player
    * has healed, which is the thing they would otherwise not notice.
@@ -149,6 +177,15 @@ export class Hud {
     gradient.addColorStop(1, `rgba(150,0,0,${strength})`);
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, width, height);
+    if (this.highContrast) {
+      // A frame that thickens with the beat: a shape, for eyes the red alone does not reach.
+      const border = (4 + beat * 8) * Math.max(1, height / 620);
+      ctx.fillStyle = `rgba(255,255,255,${0.35 + beat * 0.45})`;
+      ctx.fillRect(0, 0, width, border);
+      ctx.fillRect(0, height - border, width, border);
+      ctx.fillRect(0, 0, border, height);
+      ctx.fillRect(width - border, 0, border, height);
+    }
   }
 
   /**
@@ -223,8 +260,8 @@ export class Hud {
       }
       ctx.closePath();
       ctx.fillStyle = marker.devil ? `rgba(255,140,40,${alpha})` : `rgba(224,17,31,${alpha})`;
-      ctx.strokeStyle = `rgba(0,0,0,${alpha * 0.8})`;
-      ctx.lineWidth = 1.5 * s;
+      ctx.strokeStyle = this.highContrast ? `rgba(255,255,255,${Math.min(1, alpha + 0.3)})` : `rgba(0,0,0,${alpha * 0.8})`;
+      ctx.lineWidth = (this.highContrast ? 2.5 : 1.5) * s;
       ctx.fill();
       ctx.stroke();
       ctx.setTransform(1, 0, 0, 1, 0, 0);

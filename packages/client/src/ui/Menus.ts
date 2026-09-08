@@ -132,6 +132,8 @@ export interface MenuCallbacks {
   onFeel: () => void;
   /** Key bindings changed; the game re-reads the save. */
   onKeys: () => void;
+  /** A gamepad spoke on a menu, so the hints can name it. */
+  onPadSeen?: () => void;
   /** Fired whenever a screen opens or the menus close. */
   onScreen: (screen: Screen) => void;
   /** Join a server; `address` is whatever the player typed. */
@@ -523,12 +525,16 @@ export class Menus {
       if (this.current === 'none') return;
       const target = event.target as HTMLElement | null;
       if (target && (target.tagName === 'INPUT' || target.tagName === 'SELECT')) return;
-      if (event.code === 'ArrowDown' || event.code === 'ArrowRight') {
+      const arrows: Record<string, [number, number]> = {
+        ArrowUp: [0, -1],
+        ArrowDown: [0, 1],
+        ArrowLeft: [-1, 0],
+        ArrowRight: [1, 0],
+      };
+      const direction = arrows[event.code];
+      if (direction) {
         event.preventDefault();
-        this.moveFocus(1);
-      } else if (event.code === 'ArrowUp' || event.code === 'ArrowLeft') {
-        event.preventDefault();
-        this.moveFocus(-1);
+        this.moveFocusToward(direction[0], direction[1]);
       }
     });
     window.setInterval(() => this.pollPad(), 50);
@@ -553,6 +559,48 @@ export class Menus {
     target.scrollIntoView({ block: 'nearest' });
   }
 
+  /**
+   * Move the focus the way the arrow points, by where things are on the
+   * screen: down in a grid of rooms goes to the card below, not the one to
+   * the right. Falls back to reading order when nothing lies that way.
+   */
+  private moveFocusToward(dx: number, dy: number): void {
+    const items = this.focusables();
+    const active = document.activeElement as HTMLElement | null;
+    if (!active || !items.includes(active)) {
+      this.moveFocus(dx + dy >= 0 ? 1 : -1);
+      return;
+    }
+    const from = active.getBoundingClientRect();
+    const fx = from.left + from.width / 2;
+    const fy = from.top + from.height / 2;
+    let best: HTMLElement | null = null;
+    let bestScore = Infinity;
+    for (const item of items) {
+      if (item === active) continue;
+      const r = item.getBoundingClientRect();
+      const cx = r.left + r.width / 2;
+      const cy = r.top + r.height / 2;
+      const ax = cx - fx;
+      const ay = cy - fy;
+      // Must lie in the arrow's half-plane, past the edge of the current box.
+      const along = ax * dx + ay * dy;
+      if (along <= 4) continue;
+      const across = Math.abs(ax * dy) + Math.abs(ay * dx);
+      const score = along + across * 2.5;
+      if (score < bestScore) {
+        bestScore = score;
+        best = item;
+      }
+    }
+    if (best) {
+      best.focus();
+      best.scrollIntoView({ block: 'nearest' });
+    } else {
+      this.moveFocus(dx + dy >= 0 ? 1 : -1);
+    }
+  }
+
   private padHeld = new Set<number>();
   private padRepeat = 0;
 
@@ -564,6 +612,7 @@ export class Menus {
     }
     const pad = firstGamepad();
     if (!pad) return;
+    this.callbacks.onPadSeen?.();
     const now = new Set<number>();
     pad.buttons.forEach((b, i) => {
       if (b.pressed || b.value > 0.5) now.add(i);
@@ -574,12 +623,17 @@ export class Menus {
     const rose = (i: number): boolean => now.has(i) && !this.padHeld.has(i);
 
     // Held directions repeat slowly, so a long list can be walked.
+    const x = pad.axes[0] ?? 0;
+    if (x < -0.5) now.add(14);
+    if (x > 0.5) now.add(15);
     const vertical = now.has(12) ? -1 : now.has(13) ? 1 : 0;
-    if (vertical !== 0 && (rose(12) || rose(13) || ++this.padRepeat > 6)) {
-      this.padRepeat = rose(12) || rose(13) ? -4 : 0;
-      this.moveFocus(vertical);
+    const horizontal = now.has(14) ? -1 : now.has(15) ? 1 : 0;
+    const moved = rose(12) || rose(13) || rose(14) || rose(15);
+    if ((vertical !== 0 || horizontal !== 0) && (moved || ++this.padRepeat > 6)) {
+      this.padRepeat = moved ? -4 : 0;
+      this.moveFocusToward(horizontal, vertical);
     }
-    if (vertical === 0) this.padRepeat = 0;
+    if (vertical === 0 && horizontal === 0) this.padRepeat = 0;
 
     if (rose(0)) {
       const active = document.activeElement as HTMLElement | null;
@@ -1099,6 +1153,15 @@ export class Menus {
         <span id="hudVal">${Math.round(this.save.hudScale * 100)}%</span>
       </div>
       <div class="row">
+        <label for="lead">Camera leads the aim</label>
+        <input type="checkbox" id="lead" ${this.save.cameraLead ? 'checked' : ''}>
+      </div>
+      <div class="row">
+        <label for="contrast">High contrast</label>
+        <input type="checkbox" id="contrast" ${this.save.highContrast ? 'checked' : ''}>
+        <span class="hint">outlined markers and a framed heartbeat, not colour alone</span>
+      </div>
+      <div class="row">
         <label for="rumble">Gamepad rumble</label>
         <input type="checkbox" id="rumble" ${this.save.rumble ? 'checked' : ''}>
       </div>
@@ -1216,6 +1279,16 @@ export class Menus {
     const rumble = inner.querySelector<HTMLInputElement>('#rumble')!;
     rumble.addEventListener('change', () => {
       this.save.setRumble(rumble.checked);
+      this.callbacks.onFeel();
+    });
+    const lead = inner.querySelector<HTMLInputElement>('#lead')!;
+    lead.addEventListener('change', () => {
+      this.save.setCameraLead(lead.checked);
+      this.callbacks.onFeel();
+    });
+    const contrast = inner.querySelector<HTMLInputElement>('#contrast')!;
+    contrast.addEventListener('change', () => {
+      this.save.setHighContrast(contrast.checked);
       this.callbacks.onFeel();
     });
     const tips = inner.querySelector<HTMLInputElement>('#tips')!;

@@ -224,6 +224,9 @@ const menus = new Menus(app, pack, rooms, save, screens, {
   },
   onFeel: () => applyFeelSettings(),
   onKeys: () => input.setBindings(save.keys as Partial<Bindings>),
+  onPadSeen: () => {
+    input.padSeen = true;
+  },
   // The menus own the keyboard while they are up; play keys must not leak
   // through, and nothing pressed there may fire once play resumes.
   onScreen: (screen) => {
@@ -391,6 +394,7 @@ function applyFeelSettings(): void {
   run.renderer.shakeScale = save.shake;
   run.renderer.flashes = save.flashes;
   run.hud.sizeScale = save.hudScale;
+  run.hud.highContrast = save.highContrast;
 }
 
 function startRun(roomId: string, characterId: string): void {
@@ -796,6 +800,8 @@ const loop = new Loop(
         lastHurt = world.hurt;
         const me = world.players[run.session.localPlayerIndex];
         if (me && me.state === 'alive' && !world.gameOver) offerTips(world, me);
+        // Park every ten seconds as well, against a crash the page never sees coming.
+        if (world.tick % 500 === 0) parkRun();
       }
       // `step` may have replaced the world (a match started); re-read.
       if (!run) return;
@@ -816,7 +822,7 @@ const loop = new Loop(
       } else if (target) {
         // Lean the camera a little toward the aim, so the player sees more
         // of where they are shooting than of what is behind them.
-        const lead = target === local && local.state === 'alive' ? aimLead(local) : { x: 0, y: 0 };
+        const lead = save.cameraLead && target === local && local.state === 'alive' ? aimLead(local) : { x: 0, y: 0 };
         run.camera.follow(target.x + lead.x, target.y + lead.y);
       }
 

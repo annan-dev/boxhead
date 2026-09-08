@@ -103,6 +103,10 @@ export interface SaveState {
   secondCharacterId?: string | undefined;
   /** Shared screen: survive together, or head to head. */
   sharedMode?: 'coop' | 'deathmatch' | undefined;
+  /** The camera leans toward the aim. */
+  cameraLead?: boolean | undefined;
+  /** Markers outlined and the heartbeat framed, for players who need more than colour. */
+  highContrast?: boolean | undefined;
 }
 
 function defaults(): SaveState {
@@ -244,6 +248,24 @@ export class SaveData {
 
   get rumble(): boolean {
     return this.state.rumble ?? true;
+  }
+
+  get cameraLead(): boolean {
+    return this.state.cameraLead ?? true;
+  }
+
+  setCameraLead(value: boolean): void {
+    this.state.cameraLead = value;
+    this.persist();
+  }
+
+  get highContrast(): boolean {
+    return this.state.highContrast ?? false;
+  }
+
+  setHighContrast(value: boolean): void {
+    this.state.highContrast = value;
+    this.persist();
   }
 
   get keys(): Record<string, string[]> {
