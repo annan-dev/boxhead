@@ -110,7 +110,7 @@ function formatSeconds(total: number): string {
 
 /** Marks an option that takes a run out of the high-score table. */
 const NO_SCORE_BADGE =
-  '<span class="badge" title="Runs with this setting do not count for high scores or unlocks">&#9888; no high scores</span>';
+  '<span class="badge" title="Runs with this setting do not count for high scores or unlocks" aria-label="no high scores">&#9888;</span>';
 
 /**
  * The original's own menu pictures, written by the extractor as
@@ -450,6 +450,11 @@ const STYLE = `
            color: #e6cf94; border: 1px solid var(--brass-dim); font: 700 10px ${BODY};
            text-transform: uppercase; letter-spacing: .12em; vertical-align: middle; }
   .badge.strong { background: var(--red); color: #fff; border-color: var(--red-lo); }
+  /* Game: a row of buttons where a dropdown would hide the choices. */
+  .seg { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+  .seg .tab { padding: 8px 14px; }
+  .seg .tab small { display: block; margin-top: 3px; font: 600 10px ${BODY}; letter-spacing: .08em; text-transform: none; color: var(--muted); }
+  .seg .tab.on small { color: var(--bone-dim); }
   .menu p { color: var(--bone-dim); }
   .menu code { color: #e6cf94; }
 
@@ -1159,22 +1164,22 @@ export class Menus {
       <div class="panel"><div class="paper">
       <section data-tab="game" ${this.optionsTab === 'game' ? '' : 'hidden'}>
       <div class="row">
-        <label for="difficulty">Difficulty</label>
-        <select id="difficulty">
+        <label>Difficulty</label>
+        <div class="seg" id="difficulty" role="radiogroup">
           ${DIFFICULTIES.map(
-            (d) => `<option value="${d.id}" ${d.id === this.save.difficulty ? 'selected' : ''}>
-              ${d.name} &mdash; level ${d.startLevel}, multiplier x${d.startMultiplier}</option>`,
+            (d) => `<button type="button" class="tab ${d.id === this.save.difficulty ? 'on' : ''}" data-value="${d.id}" role="radio" aria-checked="${d.id === this.save.difficulty}">
+              ${d.name}<small>level ${d.startLevel} &middot; x${d.startMultiplier}</small></button>`,
           ).join('')}
-        </select>
+        </div>
       </div>
       <div class="row">
-        <label for="speed">Game speed</label>
-        <select id="speed">
+        <label>Game speed</label>
+        <div class="seg" id="speed" role="radiogroup">
           ${GAME_SPEEDS.map(
-            (s) => `<option value="${s.id}" ${s.id === this.save.gameSpeed ? 'selected' : ''}>
-              ${s.name} &mdash; ${s.factor}x${s.factor < 1 ? ' ⚠ no high scores' : ''}</option>`,
+            (s) => `<button type="button" class="tab ${s.id === this.save.gameSpeed ? 'on' : ''}" data-value="${s.id}" role="radio" aria-checked="${s.id === this.save.gameSpeed}">
+              ${s.name}<small>${s.factor}x</small></button>`,
           ).join('')}
-        </select>
+        </div>
         <span id="speedBadge" ${this.save.gameSpeed === 'slow' ? '' : 'hidden'}>${NO_SCORE_BADGE}</span>
       </div>
       <div class="row">
@@ -1316,10 +1321,10 @@ export class Menus {
       </div></div>
     `);
     this.backButton(inner, this.origin);
-    for (const tab of inner.querySelectorAll<HTMLButtonElement>('button.tab')) {
+    for (const tab of inner.querySelectorAll<HTMLButtonElement>('.tabs button.tab')) {
       tab.addEventListener('click', () => {
         this.save.setOptionsTab(tab.dataset.tab ?? 'game');
-        for (const other of inner.querySelectorAll<HTMLButtonElement>('button.tab')) other.classList.toggle('on', other === tab);
+        for (const other of inner.querySelectorAll<HTMLButtonElement>('.tabs button.tab')) other.classList.toggle('on', other === tab);
         for (const section of inner.querySelectorAll<HTMLElement>('section[data-tab]')) section.hidden = section.dataset.tab !== tab.dataset.tab;
       });
     }
@@ -1392,13 +1397,26 @@ export class Menus {
       this.renderOptions();
     });
 
-    const difficulty = inner.querySelector<HTMLSelectElement>('#difficulty')!;
-    difficulty.addEventListener('change', () => this.save.setDifficulty(difficulty.value));
-    const speed = inner.querySelector<HTMLSelectElement>('#speed')!;
+    /** A row of buttons standing in for a select: one is on, a click moves it. */
+    const segment = (id: string, onPick: (value: string) => void): void => {
+      const group = inner.querySelector<HTMLDivElement>(`#${id}`)!;
+      for (const button of group.querySelectorAll<HTMLButtonElement>('button')) {
+        button.addEventListener('click', () => {
+          for (const other of group.querySelectorAll<HTMLButtonElement>('button')) {
+            const on = other === button;
+            other.classList.toggle('on', on);
+            other.setAttribute('aria-checked', String(on));
+          }
+          this.callbacks.onUiSound?.('click');
+          onPick(button.dataset.value!);
+        });
+      }
+    };
+    segment('difficulty', (value) => this.save.setDifficulty(value));
     const speedBadge = inner.querySelector<HTMLSpanElement>('#speedBadge')!;
-    speed.addEventListener('change', () => {
-      this.save.setGameSpeed(speed.value);
-      speedBadge.hidden = speed.value !== 'slow';
+    segment('speed', (value) => {
+      this.save.setGameSpeed(value);
+      speedBadge.hidden = value !== 'slow';
     });
     const devils = inner.querySelector<HTMLInputElement>('#devils')!;
     const devilsBadge = inner.querySelector<HTMLSpanElement>('#devilsBadge')!;
