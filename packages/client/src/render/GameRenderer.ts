@@ -130,6 +130,7 @@ export class GameRenderer {
       drawLayers(ctx, layers);
       this.grainFloor();
       this.paintVoid();
+      this.shadeBlocks();
     } else {
       ctx.fillStyle = '#cfc4ad';
       ctx.fillRect(0, 0, this.floor.width, this.floor.height);
@@ -148,6 +149,33 @@ export class GameRenderer {
       }
       ctx.stroke();
     }
+  }
+
+  /**
+   * A soft shadow on the floor beside every block, painted once. The blocks
+   * are drawn as flat boxes, and without something on the ground to anchor
+   * them they float; a little dark falling to the lower right seats them and
+   * gives the arena the depth its geometry already has.
+   */
+  private shadeBlocks(): void {
+    const ctx = this.floorCtx;
+    ctx.save();
+    for (const block of this.world.map.blocks) {
+      const spread = Math.max(10, Math.min(22, block.rise * 0.9));
+      // Right edge.
+      let g = ctx.createLinearGradient(block.x + block.w, 0, block.x + block.w + spread, 0);
+      g.addColorStop(0, 'rgba(20,14,8,0.28)');
+      g.addColorStop(1, 'rgba(20,14,8,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(block.x + block.w, block.y + 4, spread, block.h + spread * 0.6);
+      // Bottom edge.
+      g = ctx.createLinearGradient(0, block.y + block.h, 0, block.y + block.h + spread);
+      g.addColorStop(0, 'rgba(20,14,8,0.3)');
+      g.addColorStop(1, 'rgba(20,14,8,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(block.x + 4, block.y + block.h, block.w + spread * 0.6, spread);
+    }
+    ctx.restore();
   }
 
   /**
@@ -449,6 +477,13 @@ export class GameRenderer {
     ctx.fillRect(block.x + block.w - 3, frontY, 3, rise);
 
     ctx.fillStyle = colors.top;
+    ctx.fillRect(block.x, topY, block.w, block.h);
+    // A faint fall-off toward the bottom of the top face, so light reads
+    // as coming from the upper left the way the character shading does.
+    const tone = ctx.createLinearGradient(0, topY, 0, topY + block.h);
+    tone.addColorStop(0, 'rgba(255,255,255,0.06)');
+    tone.addColorStop(1, 'rgba(0,0,0,0.06)');
+    ctx.fillStyle = tone;
     ctx.fillRect(block.x, topY, block.w, block.h);
     ctx.fillStyle = colors.bevel;
     ctx.fillRect(block.x, topY, block.w, 2);
