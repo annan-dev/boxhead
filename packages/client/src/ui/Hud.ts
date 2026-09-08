@@ -310,9 +310,12 @@ export class Hud {
     label = '',
   ): void {
     const slots = WEAPON_ORDER.filter((id) => player.weapons.get(id)?.unlocked);
-    const slotWidth = (side === 0 ? 64 : 52) * s;
-    const slotHeight = 34 * s;
+    // A full arsenal must still fit a narrow window, or half of one.
+    const room = side === 0 ? ctx.canvas.width - 24 * s : ctx.canvas.width / 2 - 16 * s;
+    const natural = (side === 0 ? 64 : 52) * s;
     const gap = 5 * s;
+    const slotWidth = Math.max(36 * s, Math.min(natural, (room - (slots.length - 1) * gap) / Math.max(1, slots.length)));
+    const slotHeight = 34 * s;
     const totalWidth = slots.length * slotWidth + (slots.length - 1) * gap;
     const centre = side === 0 ? ctx.canvas.width / 2 : ctx.canvas.width * (side < 0 ? 0.27 : 0.73);
     let x = centre - totalWidth / 2;
@@ -351,7 +354,7 @@ export class Hud {
       ctx.font = `700 ${9 * s}px ${BODY}`;
       this.text(ctx, String(def.slot), x + 7 * s, top + 13 * s, active ? '#ffb3b8' : BRASS_BRIGHT, s);
 
-      ctx.font = `400 ${13 * s}px ${DISPLAY}`;
+      ctx.font = `400 ${(slotWidth < 50 * s ? 11 : 13) * s}px ${DISPLAY}`;
       this.text(ctx, def.shortName, x + 17 * s, top + 14 * s, active ? '#ffffff' : empty ? MUTED : BONE, s);
 
       ctx.font = `700 ${10 * s}px ${BODY}`;
