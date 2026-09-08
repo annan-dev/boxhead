@@ -27,10 +27,15 @@ export class LocalSession implements Session {
   readonly localPlayerIndex = 0;
   readonly stepMs: number;
   readonly recordsScores = true;
+  /** The preset the run opened on, for the record it leaves behind. */
+  readonly difficulty: string;
+  readonly startLevel: number;
 
   constructor(options: LocalOptions) {
     this.room = options.room;
     const difficulty = DIFFICULTIES.find((d) => d.id === options.difficulty) ?? DIFFICULTIES[0]!;
+    this.difficulty = difficulty.id;
+    this.startLevel = difficulty.startLevel;
     const speed = GAME_SPEEDS.find((s) => s.id === options.gameSpeed) ?? GAME_SPEEDS[1]!;
     this.world = new World({
       room: options.room,

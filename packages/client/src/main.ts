@@ -328,10 +328,20 @@ function recordRun(): RunResult | null {
   if (!run || debriefed || !run.session.recordsScores) return null;
   debriefed = true;
   const { world, room } = run.session;
+  const local = run.session instanceof LocalSession ? run.session : null;
+  const seconds = Math.round((world.tick * run.session.stepMs) / 1000);
   const outcome = save.recordRun(
     room.id,
     room.index,
-    { score: world.score, level: world.level, kills: world.kills },
+    {
+      score: world.score,
+      level: world.level,
+      kills: world.kills,
+      startLevel: local?.startLevel ?? 1,
+      difficulty: local?.difficulty ?? save.difficulty,
+      peakMultiplier: world.awardsBankedUpTo,
+      seconds,
+    },
     run.countsForHighScores,
     rooms.length,
   );
@@ -341,6 +351,10 @@ function recordRun(): RunResult | null {
     score: world.score,
     level: world.level,
     kills: world.kills,
+    peakMultiplier: world.awardsBankedUpTo,
+    seconds,
+    difficulty: local?.difficulty ?? save.difficulty,
+    levelsCleared: world.level - (local?.startLevel ?? 1),
     isBest: outcome.isBest,
     unlockedNext: outcome.unlockedNext,
     practice: run.practiceReason,
@@ -371,6 +385,21 @@ window.addEventListener('resize', resize);
 // Layout can settle after the module runs, so track the element itself.
 new ResizeObserver(resize).observe(canvas);
 resize();
+
+/**
+ * Losing the window mid-wave must not cost the run: a single-player game
+ * pauses itself the moment focus goes and waits on the quick-pause sheet.
+ */
+function pauseForFocusLoss(): void {
+  if (!run || menus.isOpen || paused) return;
+  if (run.session instanceof NetSession || run.session.world.gameOver) return;
+  paused = true;
+  input.clearLatches();
+}
+window.addEventListener('blur', pauseForFocusLoss);
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) pauseForFocusLoss();
+});
 
 window.addEventListener('keydown', (event) => {
   if (menus.isOpen) return;
@@ -451,27 +480,45 @@ const loop = new Loop(
       renderer.draw(ctx, camera, blend);
       hud.draw(ctx, camera);
 
-      if (paused && !menus.isOpen) {
-        // The original's pause: a dark sheet with a brown band across the top.
-        const s = Math.max(1, Math.min(2, canvas.height / 620));
-        ctx.fillStyle = 'rgba(0,0,0,0.72)';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = 'rgba(153,51,0,0.9)';
-        ctx.fillRect(0, 0, canvas.width, 44 * s);
-        ctx.font = `900 ${44 * s}px "Arial Black", Impact, "Segoe UI Black", sans-serif`;
-        ctx.fillStyle = '#ffffff';
-        ctx.textAlign = 'center';
-        ctx.fillText('PAUSED', canvas.width / 2, canvas.height / 2);
-        ctx.font = `700 ${13 * s}px "Segoe UI", system-ui, sans-serif`;
-        ctx.fillStyle = 'rgba(255,255,255,0.75)';
-        ctx.fillText('P  RESUME      ESC  MENU      R  RESTART', canvas.width / 2, canvas.height / 2 + 30 * s);
-        ctx.textAlign = 'left';
-      }
+      if (paused && !menus.isOpen) drawQuickPause();
       if (showStats) drawStats();
     },
   },
   TICK_MS,
 );
+
+/**
+ * The quick pause: the original's dark sheet with its red band across the
+ * top, lettered the way the menus are so the two pause screens read as one.
+ */
+function drawQuickPause(): void {
+  const s = Math.max(1, Math.min(2, canvas.height / 620));
+  const { width, height } = canvas;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = 'rgba(4,4,6,0.72)';
+  ctx.fillRect(0, 0, width, height);
+  const band = ctx.createLinearGradient(0, 0, 0, 42 * s);
+  band.addColorStop(0, '#8b1a12');
+  band.addColorStop(1, '#5a0d0a');
+  ctx.fillStyle = band;
+  ctx.fillRect(0, 0, width, 42 * s);
+  ctx.fillStyle = '#2a0605';
+  ctx.fillRect(0, 42 * s, width, 3 * s);
+
+  ctx.textAlign = 'center';
+  ctx.font = `700 ${46 * s}px "Cinzel", "Trajan Pro", "Palatino Linotype", Georgia, serif`;
+  ctx.fillStyle = 'rgba(0,0,0,0.8)';
+  ctx.fillText('PAUSED', width / 2 + 2 * s, height / 2 + 3 * s);
+  ctx.fillStyle = '#e9e2d0';
+  ctx.fillText('PAUSED', width / 2, height / 2);
+  ctx.fillStyle = '#e0111f';
+  ctx.fillRect(width / 2 - 30 * s, height / 2 + 12 * s, 60 * s, 3 * s);
+
+  ctx.font = `700 ${11 * s}px "Segoe UI", system-ui, sans-serif`;
+  ctx.fillStyle = '#c9a75a';
+  ctx.fillText('P   RESUME          ESC   MENU          R   RESTART', width / 2, height / 2 + 40 * s);
+  ctx.textAlign = 'left';
+}
 
 function drawStats(): void {
   if (!run) return;

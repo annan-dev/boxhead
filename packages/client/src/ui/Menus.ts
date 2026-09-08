@@ -22,7 +22,7 @@ import { drawComposed, type TextureSwap } from '../render/VectorModel.js';
 import { ClipIndex, composePose, type Layer } from '../render/Rig.js';
 import { drawSprite } from '../render/SpriteRenderer.js';
 import type { SaveData } from '../state/SaveData.js';
-import { UNLOCK_LEVEL } from '../state/SaveData.js';
+import { UNLOCK_CLEARS, UNLOCK_LEVEL } from '../state/SaveData.js';
 import { assetUrl } from '../assets/AssetSource.js';
 import { CHARACTER_PALETTES } from '../render/HeadArt.js';
 import { TitleArt } from './TitleArt.js';
@@ -59,10 +59,22 @@ export interface RunResult {
   score: number;
   level: number;
   kills: number;
+  peakMultiplier: number;
+  /** Wall seconds of play. */
+  seconds: number;
+  difficulty: string;
+  /** Waves cleared past the difficulty's starting level. */
+  levelsCleared: number;
   isBest: boolean;
   unlockedNext: boolean;
   /** Why the run did not count for high scores, or null when it did. */
   practice: string | null;
+}
+
+function formatSeconds(total: number): string {
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
 }
 
 /** Marks an option that takes a run out of the high-score table. */
@@ -591,8 +603,8 @@ export class Menus {
     return CHARACTERS.find((c) => c.id === id)?.name ?? id;
   }
 
-  private difficultyName(): string {
-    return DIFFICULTIES.find((d) => d.id === this.save.difficulty)?.name ?? 'Beginner';
+  private difficultyName(id: string = this.save.difficulty): string {
+    return DIFFICULTIES.find((d) => d.id === id)?.name ?? 'Beginner';
   }
 
   // ---- arena select -------------------------------------------------------
@@ -603,7 +615,8 @@ export class Menus {
         const record = this.save.recordFor(room.id);
         const unlocked = this.save.isRoomUnlocked(index);
         const best = record.score > 0
-          ? `best ${record.score.toLocaleString()} &middot; level ${record.level}`
+          ? `best ${record.score.toLocaleString()} &middot; level ${record.level}` +
+            (record.difficulty && record.difficulty !== 'beginner' ? ` &middot; ${escapeHtml(this.difficultyName(record.difficulty))}` : '')
           : 'not played';
         const icon = this.screens?.levelIcons[room.id];
         return `
@@ -1130,7 +1143,18 @@ export class Menus {
         <div class="stats">
           <div>level reached <b>${result.level}</b></div>
           <div>kills <b>${result.kills}</b></div>
-          ${result.unlockedNext ? '<div class="unlocked">new room unlocked</div>' : ''}
+          <div>peak multiplier <b>x${result.peakMultiplier}</b></div>
+          <div>survived <b>${formatSeconds(result.seconds)}</b></div>
+          <div>difficulty <b>${escapeHtml(this.difficultyName(result.difficulty))}</b></div>
+        </div>
+        <div class="stats">
+          ${
+            result.unlockedNext
+              ? '<div class="unlocked">new room unlocked</div>'
+              : result.practice || result.levelsCleared >= UNLOCK_CLEARS
+                ? ''
+                : `<div>clear <b>${UNLOCK_CLEARS - result.levelsCleared}</b> more ${UNLOCK_CLEARS - result.levelsCleared === 1 ? 'wave' : 'waves'} here to unlock the next room</div>`
+          }
         </div>
         <button class="btn primary" id="again">Play again</button>
         <button class="btn secondary" data-go="rooms">Choose another room</button>

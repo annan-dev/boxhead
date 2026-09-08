@@ -17,6 +17,12 @@ export interface RoomRecord {
   kills: number;
   /** Runs completed here. */
   plays: number;
+  /** Difficulty the best score was set on, so a Nightmare start is not mistaken for skill. */
+  difficulty?: string | undefined;
+  /** Highest multiplier reached in any run here. */
+  peakMultiplier?: number;
+  /** Longest run here, in whole seconds of play. */
+  seconds?: number;
 }
 
 export interface SaveState {
@@ -61,8 +67,13 @@ function defaults(): SaveState {
   };
 }
 
-/** Levels that must be reached in any arena to unlock the next one. */
+/**
+ * Levels that must be cleared in an arena to unlock the next one. Beginner
+ * starts at level 1 and needs level 4; a harder preset starts later and needs
+ * the same three clears past its own start, so no preset unlocks by dying.
+ */
 export const UNLOCK_LEVEL = 4;
+export const UNLOCK_CLEARS = UNLOCK_LEVEL - 1;
 
 export class SaveData {
   private state: SaveState;
@@ -231,7 +242,16 @@ export class SaveData {
   recordRun(
     roomId: string,
     roomIndex: number,
-    result: { score: number; level: number; kills: number },
+    result: {
+      score: number;
+      level: number;
+      kills: number;
+      /** The level the run opened on, from its difficulty preset. */
+      startLevel?: number;
+      difficulty?: string | undefined;
+      peakMultiplier?: number;
+      seconds?: number;
+    },
     /** Eligibility as it stood when the run began; options may change mid-run. */
     counts = this.countsForHighScores,
     /** How many arenas exist, so the last one has nothing to unlock. */
@@ -246,11 +266,16 @@ export class SaveData {
       level: Math.max(previous.level, result.level),
       kills: Math.max(previous.kills, result.kills),
       plays: previous.plays + 1,
+      difficulty: isBest ? (result.difficulty ?? this.state.difficulty) : previous.difficulty,
+      peakMultiplier: Math.max(previous.peakMultiplier ?? 0, result.peakMultiplier ?? 0),
+      seconds: Math.max(previous.seconds ?? 0, result.seconds ?? 0),
     };
 
-    // Reaching a decent level in an arena opens the next one along.
+    // Clearing a few waves in an arena opens the next one along, measured
+    // from wherever the difficulty started the run.
     let unlockedNext = false;
-    if (result.level >= UNLOCK_LEVEL && roomIndex + 1 >= this.state.unlockedRooms && roomIndex + 1 < roomCount) {
+    const needed = (result.startLevel ?? 1) + UNLOCK_CLEARS;
+    if (result.level >= needed && roomIndex + 1 >= this.state.unlockedRooms && roomIndex + 1 < roomCount) {
       this.state.unlockedRooms = Math.max(this.state.unlockedRooms, roomIndex + 2);
       unlockedNext = true;
     }
