@@ -108,17 +108,35 @@ export class AudioEngine {
     return { context: this.context, destination: this.master };
   }
 
-  /** Play one positioned sound. Silently no-ops if the sample is unavailable. */
+  /**
+   * Play one positioned sound. Silently no-ops if the sample is unavailable.
+   * Names under `UI.` and `World.` are the player's own feedback and play at
+   * full level in the centre wherever they were raised.
+   */
   play(name: string, x: number, y: number, rate: number, listener: Listener): void {
     const context = this.context;
     const master = this.master;
     if (!context || !master || this.muted || context.state !== 'running') return;
-    const buffer = this.buffers.get(name);
-    if (!buffer) return;
 
     const now = performance.now();
     const last = this.lastStart.get(name) ?? -Infinity;
     if (now - last < RETRIGGER_MS) return;
+
+    if (name.startsWith('UI.')) {
+      this.lastStart.set(name, now);
+      synthesize(context, master, name);
+      return;
+    }
+    const buffer = this.buffers.get(name);
+    if (!buffer) return;
+    if (name.startsWith('World.')) {
+      const source = context.createBufferSource();
+      source.buffer = buffer;
+      source.connect(master);
+      source.start();
+      this.lastStart.set(name, now);
+      return;
+    }
 
     const limit = VOICE_LIMITS[name] ?? DEFAULT_VOICE_LIMIT;
     const playing = this.active.get(name) ?? 0;
@@ -172,6 +190,70 @@ export class AudioEngine {
       0.92 + rng() * 0.16,
       listener,
     );
+  }
+}
+
+/**
+ * The cues the SWF has no sample for, built from oscillators: a two-note brass
+ * hit for an award, a drum for a new wave, a dry click for an empty gun.
+ */
+function synthesize(context: AudioContext, destination: AudioNode, name: string): void {
+  const t = context.currentTime;
+  const tone = (
+    type: OscillatorType,
+    freq: number,
+    start: number,
+    length: number,
+    peak: number,
+    slideTo?: number,
+  ): void => {
+    const osc = context.createOscillator();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, t + start);
+    if (slideTo !== undefined) osc.frequency.exponentialRampToValueAtTime(slideTo, t + start + length);
+    const gain = context.createGain();
+    gain.gain.setValueAtTime(0.0001, t + start);
+    gain.gain.exponentialRampToValueAtTime(peak, t + start + 0.012);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + start + length);
+    osc.connect(gain).connect(destination);
+    osc.start(t + start);
+    osc.stop(t + start + length + 0.02);
+  };
+  const thump = (start: number, length: number, peak: number, from: number, to: number): void => {
+    tone('sine', from, start, length, peak, to);
+    // A little noise on the transient so it reads as a hit, not a beep.
+    const size = Math.floor(context.sampleRate * 0.06);
+    const buffer = context.createBuffer(1, size, context.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < size; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / size);
+    const source = context.createBufferSource();
+    source.buffer = buffer;
+    const filter = context.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 900;
+    const gain = context.createGain();
+    gain.gain.value = peak * 0.7;
+    source.connect(filter).connect(gain).connect(destination);
+    source.start(t + start);
+  };
+
+  switch (name) {
+    case 'UI.Award':
+      // D then A, a fifth up, with a brassy square underneath.
+      tone('square', 293.66, 0, 0.16, 0.05);
+      tone('triangle', 587.33, 0, 0.16, 0.08);
+      tone('square', 440, 0.13, 0.42, 0.05);
+      tone('triangle', 880, 0.13, 0.42, 0.09);
+      break;
+    case 'UI.Level':
+      thump(0, 0.35, 0.5, 150, 42);
+      thump(0.16, 0.5, 0.4, 120, 36);
+      break;
+    case 'UI.Empty':
+      tone('square', 1400, 0, 0.03, 0.06, 500);
+      break;
+    default:
+      break;
   }
 }
 

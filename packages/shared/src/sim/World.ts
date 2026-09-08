@@ -895,6 +895,7 @@ export class World {
       // trigger pull (`CThing_Weapon.Update` -> `WeaponEmpty`).
       if (this.weaponEmpty(player, player.current)) {
         this.pushMessage(`${WEAPONS[player.current].name} is out of ammo!`, 'critical', 80);
+        this.playSound('UI.Empty', player.x, player.y, 1, player.id);
         this.selectWeapon(player, 'pistol');
       }
 
@@ -2391,6 +2392,7 @@ export class World {
     ) {
       this.gameOver = true;
       this.gameOverTick = this.tick;
+      this.playSound('World.End', player.x, player.y);
     }
   }
 
@@ -2487,6 +2489,10 @@ export class World {
       for (const player of this.players) this.grantAward(player, award);
       // One banner per award, not one per seat.
       if (!silent) this.pushMessage(award.message, 'upgrade', 150);
+    }
+    if (!silent) {
+      const anchor = this.players.find((p) => p.state === 'alive') ?? this.players[0];
+      this.playSound('UI.Award', anchor?.x ?? 0, anchor?.y ?? 0);
     }
     this.peakMultiplier = this.multiplier;
   }
@@ -2674,7 +2680,7 @@ export class World {
     this.devilSpawnTimer = this.levelInfo.devilSpawnRate;
     this.pushMessage(levelBanner(this.level), 'level', 160);
     const anchor = this.players.find((p) => p.state === 'alive') ?? this.players[0];
-    this.playSound('CLICK', anchor?.x ?? 0, anchor?.y ?? 0);
+    this.playSound('UI.Level', anchor?.x ?? 0, anchor?.y ?? 0);
   }
 
   private grantAward(player: Player, award: Award): void {
