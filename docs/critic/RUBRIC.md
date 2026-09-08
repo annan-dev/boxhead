@@ -51,9 +51,14 @@ unless a whole feature that was absent (scored 3 or less) has been added.
    Compare with the previous loop's numbers when judging pacing; a preset
    the bot cannot survive is not by itself unfair (the bot is no expert),
    but a change in the numbers is a change in the curve.
-5. Read whatever code the change touched, and play-read the paths it affects.
-6. Score every dimension. Copy the previous score unless you can cite what
+5. Run `node tools/playtest.mjs --url http://localhost:5180/ --out <dir> --coop`,
+   which starts a real server, joins it from two headless browsers, readies
+   and starts the match and drives both seats for a few seconds. Look at
+   `coop-lobby.png`, `coop-host.png` and `coop-guest.png`, and read `coop.json`
+   for each client's round trip, unacknowledged commands and corrections.
+6. Read whatever code the change touched, and play-read the paths it affects.
+7. Score every dimension. Copy the previous score unless you can cite what
    changed it. Cite the evidence next to each score.
-7. List the three highest-value fixes for the next loop, ranked by expected
+8. List the three highest-value fixes for the next loop, ranked by expected
    score gain per hour of work, each with the dimension it targets.
-8. Append the entry to `SCORES.md` in the format used there.
+9. Append the entry to `SCORES.md` in the format used there.

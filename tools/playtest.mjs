@@ -29,6 +29,8 @@ const width = Number(opt('width', 1280));
 const height = Number(opt('height', 720));
 /** `--fairness N`: instead of screenshots, play N bot runs per difficulty and report how long each lasted. */
 const fairnessRuns = Number(opt('fairness', 0));
+/** `--coop`: start a game server, join it from two pages, and screenshot the lobby and a shared wave. */
+const coop = args.includes('--coop');
 const FLAGS = new Set(['--url', '--out', '--width', '--height', '--fairness']);
 const wanted = args.filter((a, i) => !a.startsWith('--') && !FLAGS.has(args[i - 1]));
 
@@ -91,8 +93,8 @@ const HELPERS = `
   }
 `;
 
-async function main() {
-  mkdirSync(out, { recursive: true });
+/** A headless Chrome of its own, attached over the DevTools protocol. */
+async function launchChrome() {
   const profile = mkdtempSync(join(tmpdir(), 'boxhead-playtest-'));
   const port = 9222 + Math.floor(Math.random() * 500);
   const chrome = spawn(
@@ -109,17 +111,33 @@ async function main() {
     ],
     { stdio: 'ignore' },
   );
+  const target = await waitForTarget(port);
+  const cdp = await connect(target.webSocketDebuggerUrl);
+  await cdp.send('Page.enable');
+  await cdp.send('Runtime.enable');
+  await cdp.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
+  return {
+    cdp,
+    close() {
+      cdp.close();
+      chrome.kill();
+      setTimeout(() => rmSync(profile, { recursive: true, force: true }), 500);
+    },
+  };
+}
 
+async function main() {
+  mkdirSync(out, { recursive: true });
+  const browser = await launchChrome();
+  const cdp = browser.cdp;
   try {
-    const target = await waitForTarget(port);
-    const cdp = await connect(target.webSocketDebuggerUrl);
-    await cdp.send('Page.enable');
-    await cdp.send('Runtime.enable');
-    await cdp.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
 
     if (fairnessRuns > 0) {
       await runFairness(cdp);
-      cdp.close();
+      return;
+    }
+    if (coop) {
+      await runCoop(cdp);
       return;
     }
     const names = wanted.length > 0 ? wanted : Object.keys(SCENARIOS);
@@ -152,10 +170,8 @@ async function main() {
       console.log(JSON.stringify(line));
     }
     writeFileSync(join(out, 'results.json'), JSON.stringify(results, null, 2));
-    cdp.close();
   } finally {
-    chrome.kill();
-    setTimeout(() => rmSync(profile, { recursive: true, force: true }), 500);
+    browser.close();
   }
 }
 
@@ -196,6 +212,95 @@ async function runFairness(cdp) {
     console.log(JSON.stringify(row));
   }
   writeFileSync(join(out, 'fairness.json'), JSON.stringify(rows, null, 2));
+}
+
+/**
+ * Online play, end to end: a real server on a spare port, two headless pages
+ * that join it, the host readying and starting the match, and both clients
+ * driven by keys for a few seconds of a shared wave. Screenshots the lobby
+ * from the host and the wave from both seats, and reports each client's own
+ * netcode counters (round trip, corrections) so the feel has a number.
+ */
+async function runCoop(host) {
+  const serverPort = 9500 + Math.floor(Math.random() * 400);
+  const server = spawn(process.execPath, ['--import', 'tsx', 'packages/server/src/index.ts'], {
+    env: { ...process.env, PORT: String(serverPort) },
+    stdio: 'ignore',
+  });
+  try {
+    for (let i = 0; i < 100; i++) {
+      try {
+        const ok = await fetch(`http://127.0.0.1:${serverPort}/health`).then((r) => r.ok);
+        if (ok) break;
+      } catch {
+        // Still starting.
+      }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    // The guest gets a browser of its own: a second tab in the same one would
+    // sit in the background, where Chrome throttles its frames to nothing.
+    const guestBrowser = await launchChrome();
+    const guest = guestBrowser.cdp;
+
+    const open = async (cdp) => {
+      const loaded = cdp.waitFor('Page.loadEventFired');
+      await cdp.send('Page.navigate', { url });
+      await loaded;
+      await evaluate(cdp, `(async () => { for (let i = 0; i < 400 && !window.__game; i++) await new Promise((r) => setTimeout(r, 50)); await document.fonts.ready; })()`);
+    };
+    await open(host);
+    await open(guest);
+    const joinServer = (cdp, name, character) =>
+      evaluate(
+        cdp,
+        `(async () => { __game.connect('127.0.0.1:${serverPort}', '${name}', '${character}');
+          for (let i = 0; i < 100 && __game.menus.screen !== 'lobby'; i++) await new Promise((r) => setTimeout(r, 50));
+          return __game.menus.screen; })()`,
+      );
+    const hostScreen = await joinServer(host, 'Ann', 'swat');
+    const guestScreen = await joinServer(guest, 'Ben', 'bond');
+    await new Promise((r) => setTimeout(r, 600));
+    const lobbyShot = await host.send('Page.captureScreenshot', { format: 'png' });
+    writeFileSync(join(out, 'coop-lobby.png'), Buffer.from(lobbyShot.data, 'base64'));
+
+    await evaluate(guest, `__game.run.session.setReady(true); 'ok'`);
+    await new Promise((r) => setTimeout(r, 300));
+    await evaluate(host, `__game.run.session.setReady(true); 'ok'`);
+    await new Promise((r) => setTimeout(r, 300));
+    await evaluate(host, `__game.run.session.start(); 'ok'`);
+    // Both seats walk and shoot for a few seconds of real time.
+    const drive = (cdp, keys) =>
+      evaluate(
+        cdp,
+        `(async () => {
+          for (let i = 0; i < 100 && __game.menus.screen !== 'none'; i++) await new Promise((r) => setTimeout(r, 50));
+          const down = (code) => window.dispatchEvent(new KeyboardEvent('keydown', { code, key: code, bubbles: true }));
+          const up = (code) => window.dispatchEvent(new KeyboardEvent('keyup', { code, key: code, bubbles: true }));
+          for (const step of ${JSON.stringify(keys)}) {
+            for (const k of step.keys) down(k);
+            await new Promise((r) => setTimeout(r, step.ms));
+            for (const k of step.keys) up(k);
+          }
+          return __game.debugStats();
+        })()`,
+      );
+    const [hostStats, guestStats] = await Promise.all([
+      drive(host, [{ keys: ['KeyD', 'Space'], ms: 1500 }, { keys: ['KeyW', 'Space'], ms: 1200 }, { keys: ['Space'], ms: 1500 }]),
+      drive(guest, [{ keys: ['KeyA', 'Space'], ms: 1500 }, { keys: ['KeyS', 'Space'], ms: 1200 }, { keys: ['Space'], ms: 1500 }]),
+    ]);
+    const hostNet = await evaluate(host, `__game.run.session.stats()`);
+    const guestNet = await evaluate(guest, `__game.run.session.stats()`);
+    for (const [cdp, name] of [[host, 'coop-host'], [guest, 'coop-guest']]) {
+      const shot = await cdp.send('Page.captureScreenshot', { format: 'png' });
+      writeFileSync(join(out, `${name}.png`), Buffer.from(shot.data, 'base64'));
+    }
+    const report = { hostScreen, guestScreen, host: { ...hostStats, net: hostNet }, guest: { ...guestStats, net: guestNet } };
+    console.log(JSON.stringify(report, null, 2));
+    writeFileSync(join(out, 'coop.json'), JSON.stringify(report, null, 2));
+    guestBrowser.close();
+  } finally {
+    server.kill();
+  }
 }
 
 async function waitForTarget(port) {
