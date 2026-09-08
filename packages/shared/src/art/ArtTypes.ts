@@ -144,8 +144,9 @@ export interface ExtractedRoom {
   /** Ground art, already positioned in world space. */
   floor: SpriteFrame;
   /**
-   * Extent of the painted floor in world pixels. Play happens inside it, the
-   * camera never looks past it, and anything outside is void.
+   * The area the camera may show, in world pixels: the playable arena inside
+   * the map's solid edge ring, as the original's tracking limits define it.
+   * Anything outside is void.
    */
   floorBounds: { x: number; y: number; w: number; h: number };
   spawns: {

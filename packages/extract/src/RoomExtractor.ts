@@ -443,7 +443,8 @@ export function extractRoom(options: RoomExtractOptions): ExtractedRoom | null {
     }
   }
 
-  // The painted floor's extent; the camera is held inside it.
+  // Where the camera may look: the painted floor, narrowed below to the
+  // original's own tracking limits once the map area is known.
   let floorBounds = { x: 0, y: 0, w: width, h: height };
   if (plates.length > 0) {
     let fx0 = Infinity;
@@ -479,6 +480,15 @@ export function extractRoom(options: RoomExtractOptions): ExtractedRoom | null {
         if (tx >= 0 && ty >= 0 && tx < cols && ty < rows) tiles[ty * cols + tx] = 1;
       }
     }
+    // The original's camera is held one cell inside the area on every side
+    // (`CWorld.Process_Tracking` clamps between the cell size and the area
+    // less a cell), so the edge ring is never on screen.
+    floorBounds = {
+      x: (originCx + 1) * ROOM_CELL,
+      y: (originCy + 1) * ROOM_CELL,
+      w: (areaCols - 2) * ROOM_CELL,
+      h: (areaRows - 2) * ROOM_CELL,
+    };
   }
 
   const floor: SpriteFrame = { layers: shift };
