@@ -22,6 +22,7 @@ import {
   raycast,
   sweepClear,
 } from '../map/MapCollide.js';
+import { previewGrenade, stepGrenade, type GrenadePreview, type Obstacle } from './Grenade.js';
 import { SpatialHash } from '../spatial/SpatialHash.js';
 import { Rng } from '../math/Rng.js';
 import { clamp, distanceSq, TAU } from '../math/MathUtil.js';
@@ -38,6 +39,7 @@ import {
   EFFECT_TICKS,
   WEAPONS,
   WEAPON_ORDER,
+  GUN_IDS,
   explosionFalloff,
   explosionRadius,
   weaponBySlot,
@@ -97,8 +99,11 @@ export interface InputCommand {
   aimX: number;
   aimY: number;
   fire: boolean;
-  /** Weapon number key, 1-9 then 0, or null. */
+  /** The grenade control held; a throw goes on release, harder the longer it was held. */
+  grenade: boolean;
+  /** A weapon by its number (1-9 then 0), or null. The grenade's number is not a weapon here. */
   weaponSlot: number | null;
+  /** Cycle the guns. */
   nextWeapon: boolean;
   prevWeapon: boolean;
 }
@@ -110,6 +115,7 @@ export function emptyCommand(): InputCommand {
     aimX: 0,
     aimY: 0,
     fire: false,
+    grenade: false,
     weaponSlot: null,
     nextWeapon: false,
     prevWeapon: false,
@@ -447,6 +453,8 @@ export class World {
       stats: computeStats([]),
       firingHeld: false,
       fireHeldTicks: 0,
+      grenadeHeld: false,
+      grenadeHeldTicks: 0,
       detonateMode: false,
       kills: 0,
       score: 0,
@@ -915,6 +923,8 @@ export class World {
       if (this.applyStun(player)) {
         player.firingHeld = command.fire;
         player.fireHeldTicks = 0;
+        player.grenadeHeld = command.grenade;
+        player.grenadeHeldTicks = 0;
         continue;
       }
 
@@ -938,6 +948,7 @@ export class World {
 
       this.applyWeaponSwitch(player, command);
       this.applyFire(player, command);
+      this.applyGrenade(player, command);
     }
   }
 
@@ -1004,22 +1015,76 @@ export class World {
   private applyWeaponSwitch(player: Player, command: InputCommand): void {
     if (command.weaponSlot !== null) {
       const def = weaponBySlot(command.weaponSlot);
-      if (def && player.weapons.get(def.id)?.unlocked) {
+      // The grenade is thrown by its own control and is never the weapon in hand.
+      if (def && def.kind !== 'grenade' && player.weapons.get(def.id)?.unlocked) {
         this.selectWeapon(player, def.id);
       }
       return;
     }
     if (command.nextWeapon || command.prevWeapon) {
-      // `NextWeapon` / `PrevWeapon` skip weapons that are owned but empty.
-      const usable = WEAPON_ORDER.filter(
+      // The cycle keys step through the guns, skipping any that are owned
+      // but empty, as the original's `NextWeapon` / `PrevWeapon` did.
+      const usable = GUN_IDS.filter(
         (id) => player.weapons.get(id)?.unlocked && !this.weaponEmpty(player, id),
       );
       if (usable.length === 0) return;
       const at = usable.indexOf(player.current);
       const shift = command.nextWeapon ? 1 : -1;
-      const next = usable[(at + shift + usable.length) % usable.length]!;
+      const next = usable[at < 0 ? 0 : (at + shift + usable.length) % usable.length]!;
       this.selectWeapon(player, next);
     }
+  }
+
+  /**
+   * The grenade, on its own control: it charges while the control is held,
+   * clamped to the original's quarter-to-three-quarter-second window, and
+   * flies on release whatever weapon is in hand.
+   */
+  private applyGrenade(player: Player, command: InputCommand): void {
+    const triggered = player.grenadeHeld && !command.grenade;
+    const heldTicks = player.grenadeHeldTicks;
+    player.grenadeHeldTicks = command.grenade ? player.grenadeHeldTicks + 1 : 0;
+    player.grenadeHeld = command.grenade;
+    if (!triggered || player.fireCooldown > 0) return;
+    const def = WEAPONS.grenade;
+    const slot = player.weapons.get('grenade');
+    if (!slot?.unlocked || slot.ammo <= 0) return;
+    const stats = statsFor(player.stats, 'grenade');
+    const power = Math.max(GRENADE.minPower, Math.min(1, heldTicks / GRENADE.chargeTicks));
+    this.stats.shotsFired += 1;
+    this.stats.volleys += 1;
+    this.fireProjectiles(player, def, stats, power);
+    player.fireCooldown = Math.max(1, def.fireRate);
+    slot.ammo -= 1;
+  }
+
+  /** The throw's power right now, 0 while the control is up, for the client's arc. */
+  grenadeCharge(player: Player): number {
+    if (!player.grenadeHeld) return 0;
+    return Math.max(GRENADE.minPower, Math.min(1, player.grenadeHeldTicks / GRENADE.chargeTicks));
+  }
+
+  /** The barrels standing, as the things a low grenade can strike. */
+  private grenadeObstacles(): Obstacle[] {
+    const out: Obstacle[] = [];
+    for (const p of this.placeables) {
+      if (p.alive && p.type === 'barrel') out.push({ x: p.x, y: p.y, radius: p.radius });
+    }
+    return out;
+  }
+
+  /** Where a grenade thrown now at this power would fly and land. */
+  grenadePreview(player: Player, power: number): GrenadePreview {
+    const def = WEAPONS.grenade;
+    const muzzle = player.radius + 12;
+    return previewGrenade(
+      this.map,
+      this.grenadeObstacles(),
+      { x: player.x + Math.cos(player.angle) * muzzle, y: player.y + Math.sin(player.angle) * muzzle, angle: player.angle },
+      power,
+      def.speed,
+      def.fuse ?? 120,
+    );
   }
 
   private selectWeapon(player: Player, id: WeaponId): void {
@@ -1634,32 +1699,17 @@ export class World {
       }
     }
 
+    const barrels = this.shots.some((s) => s.alive && s.kind === 'grenade') ? this.grenadeObstacles() : [];
     for (const shot of this.shots) {
       if (!shot.alive) continue;
       // A hitscan shot has already covered its range; it only lingers to draw.
       if (shot.hitscan && shot.travelled > 0) continue;
       if (shot.kind === 'grenade') {
-        // A lob: it falls, bounces with half its pace, and on the ground
-        // loses half its pace every original tick until it stops.
-        shot.vz -= GRENADE.gravity;
-        shot.z += shot.vz;
-        if (shot.z <= 0) {
-          shot.z = 0;
-          if (shot.vz < -0.8) {
-            shot.vz = -shot.vz * GRENADE.floorBounce;
-            shot.vx *= GRENADE.floorBounce;
-            shot.vy *= GRENADE.floorBounce;
-            this.playSound('Shot.Grenade.Bounce', shot.x, shot.y, this.rng.range(0.95, 1.05));
-          } else {
-            shot.vz = 0;
-            shot.vx *= GRENADE.groundDrag;
-            shot.vy *= GRENADE.groundDrag;
-            if (shot.vx * shot.vx + shot.vy * shot.vy < 0.01) {
-              shot.vx = 0;
-              shot.vy = 0;
-            }
-          }
-        }
+        // A lob, with the arena's heights: see `stepGrenade`. It moves itself.
+        const bounce = stepGrenade(this.map, shot, barrels);
+        if (bounce) this.playSound('Shot.Grenade.Bounce', shot.x, shot.y, this.rng.range(0.95, 1.05));
+        shot.travelled += Math.hypot(shot.x - shot.prevX, shot.y - shot.prevY);
+        continue;
       } else if (shot.kind === 'fireball') {
         shot.vx *= FIREBALL.acceleration;
         shot.vy *= FIREBALL.acceleration;
@@ -1894,32 +1944,15 @@ export class World {
         continue;
       }
 
+      // Grenades roll past bodies, meet walls by height in their own step,
+      // and only ever go off on their fuse.
+      if (shot.kind === 'grenade') continue;
       // Sweep the segment travelled this tick so fast shots cannot tunnel.
-      // Grenades roll past bodies and only ever go off on their fuse.
       const wall = raycast(this.map, shot.prevX, shot.prevY, shot.x, shot.y);
-      const hit = shot.kind === 'grenade' ? false : this.sweepTargets(shot, wall?.distance ?? Infinity);
+      const hit = this.sweepTargets(shot, wall?.distance ?? Infinity);
 
       if (hit) continue;
       if (wall) {
-        if (shot.kind === 'grenade') {
-          // Grenades bounce off walls, keeping a quarter of their pace:
-          // reflected about the face they struck, not simply reversed.
-          const dx = shot.x - shot.prevX;
-          const dy = shot.y - shot.prevY;
-          const probe = moveCircle(this.map, shot.prevX, shot.prevY, dx, dy, shot.radius);
-          shot.x = shot.prevX;
-          shot.y = shot.prevY;
-          if (probe.hitX) shot.vx = -shot.vx;
-          if (probe.hitY) shot.vy = -shot.vy;
-          if (!probe.hitX && !probe.hitY) {
-            shot.vx = -shot.vx;
-            shot.vy = -shot.vy;
-          }
-          shot.vx *= GRENADE.wallBounce;
-          shot.vy *= GRENADE.wallBounce;
-          this.playSound('Shot.Grenade.Bounce', shot.x, shot.y);
-          continue;
-        }
         if (shot.splashRadius > 0) {
           this.explodeShot(shot, wall.x, wall.y);
         } else {
@@ -2943,6 +2976,8 @@ export class World {
         score: p.score,
         firingHeld: p.firingHeld,
         fireHeldTicks: p.fireHeldTicks,
+        grenadeHeld: p.grenadeHeld,
+        grenadeHeldTicks: p.grenadeHeldTicks,
         detonateMode: p.detonateMode,
         connected: p.connected,
         weapons: [...p.weapons].map(([id, slot]) => [id, { ...slot }] as [WeaponId, WeaponSlot]),
@@ -3117,7 +3152,11 @@ export class World {
     for (const p of snapshot.players) {
       const weapons = new Map<WeaponId, WeaponSlot>(p.weapons.map(([id, slot]) => [id, { ...slot }]));
       const player: Player = {
+        grenadeHeld: false,
+        grenadeHeldTicks: 0,
         ...p,
+        // A parked run from before the grenade had its own control may hold it in hand.
+        current: p.current === 'grenade' ? 'pistol' : p.current,
         kind: 'player',
         prevX: p.x,
         prevY: p.y,

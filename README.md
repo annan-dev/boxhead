@@ -14,12 +14,22 @@ Playing together online: one person runs `npm start` and shares the address the
 server prints, everyone else opens the game, picks **Multiplayer**, and types
 it in, the way a Minecraft server works. See [Multiplayer](#multiplayer).
 
-**Controls** — `WASD` move, mouse aim, click or `space` fire, `1`-`0` weapons,
-`Q`/`E` or mouse wheel cycle, `P` quick pause, `Esc` pause menu (resume, restart, options,
-quit), `R` restart while paused, `M` mute, `F3` stats. Every key but the weapon numbers can be
-rebound in Options, and so can the gamepad's buttons. A standard
-gamepad works everywhere: sticks move and aim, trigger fires, bumpers cycle, Start pauses,
-B or Y opens the menu, d-pad and A drive the menus.
+**Controls** — `WASD` move, mouse aim, click or `space` fire, right click uses the
+secondary without swapping (a barrel, wall, mine or charge pack goes down, then the gun
+comes back), `G` grenade (hold to
+throw farther; the arc shows where it lands), `1` primary and `2` secondary (tap to take
+it in hand, hold and move the mouse to choose what the slot holds: a gun in the primary,
+a barrel, wall, mine or charge pack in the secondary), `Q`/`E` or mouse wheel cycle the
+guns, `F` ping where you aim (hold for the wheel: enemy, going here, crate, hold here,
+help, devil), `P` quick pause, `Esc` pause menu (resume, restart, options, quit), `R`
+restart while paused, `M` mute, `F3` stats. Every key can be rebound in Options, and so
+can the gamepad's buttons. A standard gamepad works everywhere: sticks move and aim,
+trigger fires, LT throws a grenade, bumpers cycle the guns, Y swaps the two slots, X pings,
+Start pauses, B opens the menu, d-pad and A drive the menus.
+
+The HUD is laid out the way modern shooters lay it out: the two slots and the grenade in
+the bottom right, the squad's health in the bottom left, a minimap in the top left that
+shows the arena, your squad and their pings, and the original's score panel top right.
 
 ## Assets
 

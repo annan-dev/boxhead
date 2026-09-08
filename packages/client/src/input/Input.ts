@@ -29,19 +29,25 @@ const PAD = {
 } as const;
 
 /** The pad's actions a player may move to other buttons. */
-export type PadAction = 'fire' | 'next' | 'prev' | 'menu' | 'pause';
+export type PadAction = 'fire' | 'grenade' | 'next' | 'prev' | 'swap' | 'ping' | 'menu' | 'pause';
 export type PadBindings = Record<PadAction, number[]>;
 export const DEFAULT_PAD: PadBindings = {
   fire: [PAD.rt, PAD.a],
+  grenade: [6],
   next: [PAD.rb],
   prev: [PAD.lb],
-  menu: [PAD.b, PAD.y],
+  swap: [PAD.y],
+  ping: [2],
+  menu: [PAD.b],
   pause: [PAD.start],
 };
 export const PAD_ACTION_LABELS: Record<PadAction, string> = {
   fire: 'Fire',
-  next: 'Next weapon',
-  prev: 'Previous weapon',
+  grenade: 'Throw grenade',
+  next: 'Next gun',
+  prev: 'Previous gun',
+  swap: 'Swap primary / secondary',
+  ping: 'Ping',
   menu: 'Pause menu',
   pause: 'Quick pause',
 };
@@ -76,8 +82,12 @@ function axis(pad: Gamepad, index: number): number {
   return Math.abs(value) < STICK_DEADZONE ? 0 : value;
 }
 
-/** The actions a player may rebind; weapon numbers stay on their keys. */
-export type BindableAction = 'up' | 'down' | 'left' | 'right' | 'fire' | 'next' | 'prev' | 'pause';
+/** The actions a player may rebind. */
+export type BindableAction =
+  | 'up' | 'down' | 'left' | 'right'
+  | 'fire' | 'grenade' | 'use'
+  | 'primary' | 'secondary' | 'next' | 'prev'
+  | 'ping' | 'pause';
 export type Bindings = Record<BindableAction, string[]>;
 
 export const DEFAULT_BINDINGS: Bindings = {
@@ -86,8 +96,13 @@ export const DEFAULT_BINDINGS: Bindings = {
   left: ['KeyA', 'ArrowLeft'],
   right: ['KeyD', 'ArrowRight'],
   fire: ['Space'],
+  grenade: ['KeyG'],
+  use: ['Mouse2'],
+  primary: ['Digit1'],
+  secondary: ['Digit2'],
   next: ['KeyE', 'BracketRight'],
   prev: ['KeyQ', 'BracketLeft'],
+  ping: ['KeyF'],
   pause: ['KeyP'],
 };
 
@@ -97,16 +112,24 @@ export const ACTION_LABELS: Record<BindableAction, string> = {
   left: 'Move left',
   right: 'Move right',
   fire: 'Fire',
-  next: 'Next weapon',
-  prev: 'Previous weapon',
+  grenade: 'Grenade (hold to throw farther)',
+  use: 'Use secondary (place without swapping)',
+  primary: 'Primary (hold to choose a gun)',
+  secondary: 'Secondary (hold to choose a placeable)',
+  next: 'Next gun',
+  prev: 'Previous gun',
+  ping: 'Ping (hold for the wheel)',
   pause: 'Quick pause',
 };
 
 /** Keys the game keeps for itself; binding one would take it away. */
-export const RESERVED_KEYS = new Set([
-  'Escape', 'KeyR', 'KeyM', 'F3', 'Tab',
-  'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9', 'Digit0',
-]);
+export const RESERVED_KEYS = new Set(['Escape', 'KeyR', 'KeyM', 'F3', 'Tab']);
+
+/** The actions that open a wheel when held and act at once when tapped. */
+export type HoldAction = 'primary' | 'secondary' | 'ping';
+export type HoldPhase = 'open' | 'release' | 'tap';
+/** How long a key is down before its wheel opens rather than the tap landing. */
+export const HOLD_MS = 170;
 
 /**
  * The pointer's other buttons, bindable like keys: `Mouse1` is the middle,
@@ -150,19 +173,6 @@ const MOVE_DIRECTIONS: Record<'up' | 'down' | 'left' | 'right', [number, number]
   right: [1, 0],
 };
 
-const SLOT_KEYS: Record<string, number> = {
-  Digit1: 1,
-  Digit2: 2,
-  Digit3: 3,
-  Digit4: 4,
-  Digit5: 5,
-  Digit6: 6,
-  Digit7: 7,
-  Digit8: 8,
-  Digit9: 9,
-  Digit0: 0,
-};
-
 export class Input {
   private readonly down = new Set<string>();
   private pendingSlot: number | null = null;
@@ -190,6 +200,27 @@ export class Input {
   private padMoveX = 0;
   private padMoveY = 0;
   private padFire = false;
+  private padGrenade = false;
+  /**
+   * A hold action in progress: the key that started it, when, and once it
+   * has been down long enough, the pointer where its wheel opened.
+   */
+  private hold: { action: HoldAction; code: string; start: number; x: number; y: number; open: boolean } | null = null;
+  /**
+   * Whoever owns the wheels: told when one opens, and on release where the
+   * pointer went from the opening point (canvas pixels), or that the key was
+   * only tapped.
+   */
+  holdHandler: ((action: HoldAction, phase: HoldPhase, dx: number, dy: number) => void) | null = null;
+  /**
+   * The use control (right click): while it is down the secondary is in hand
+   * and firing, then the primary comes back. The owner swaps the slots and
+   * says whether there was a secondary to use at all.
+   */
+  secondaryHandler: ((phase: 'begin' | 'end') => boolean) | null = null;
+  /** A tap of the use control shorter than a step still counts for one. */
+  private useLatch = false;
+  private usingSecondary = false;
   /** Whether a gamepad has been seen at all, for the hint text. */
   padSeen = false;
   private bindings: Bindings = DEFAULT_BINDINGS;
@@ -223,6 +254,40 @@ export class Input {
   /** The move keys currently bound to an action, for the hint text. */
   keysFor(action: BindableAction): string[] {
     return this.bindings[action];
+  }
+
+  /** Ask the simulation for a weapon by its number on the next step. */
+  selectSlot(slot: number): void {
+    this.pendingSlot = slot;
+  }
+
+  /** The wheel that is open, with the pointer's travel since it opened; null when none. */
+  get wheel(): { action: HoldAction; dx: number; dy: number } | null {
+    if (!this.hold || !this.hold.open) return null;
+    return { action: this.hold.action, dx: this.pointerX - this.hold.x, dy: this.pointerY - this.hold.y };
+  }
+
+  /** Once a frame: a hold key down long enough opens its wheel. */
+  poll(now = performance.now()): void {
+    const hold = this.hold;
+    if (!hold || hold.open || now - hold.start < HOLD_MS) return;
+    hold.open = true;
+    hold.x = this.pointerX;
+    hold.y = this.pointerY;
+    this.holdHandler?.(hold.action, 'open', 0, 0);
+  }
+
+  private beginHold(action: HoldAction, code: string): void {
+    if (this.hold) return;
+    this.hold = { action, code, start: performance.now(), x: this.pointerX, y: this.pointerY, open: false };
+  }
+
+  private endHold(code: string | null): void {
+    const hold = this.hold;
+    if (!hold || (code !== null && hold.code !== code)) return;
+    this.hold = null;
+    if (hold.open) this.holdHandler?.(hold.action, 'release', this.pointerX - hold.x, this.pointerY - hold.y);
+    else this.holdHandler?.(hold.action, 'tap', 0, 0);
   }
 
   /** True while the pad, not the mouse, owns the aim. */
@@ -279,15 +344,19 @@ export class Input {
     if (event.repeat || !this.enabled) return;
     // The game owns these keys; let everything else through.
     const action = this.keyToAction.get(event.code);
-    if (action || event.code in SLOT_KEYS) event.preventDefault();
+    if (action) event.preventDefault();
     this.down.add(event.code);
+    this.press(action, event.code);
+  };
 
-    const slot = SLOT_KEYS[event.code];
-    if (slot !== undefined) this.pendingSlot = slot;
+  /** An edge-triggered action, from a key or a mouse button. */
+  private press(action: BindableAction | undefined, code: string): void {
     if (action === 'next') this.pendingNext = true;
     if (action === 'prev') this.pendingPrev = true;
     if (action === 'pause') this.pausePressed = true;
-  };
+    if (action === 'use') this.useLatch = true;
+    if (action === 'primary' || action === 'secondary' || action === 'ping') this.beginHold(action, code);
+  }
 
   private held(action: BindableAction): boolean {
     return this.bindings[action].some((code) => this.down.has(code) && this.keyToAction.get(code) === action);
@@ -332,16 +401,21 @@ export class Input {
     this.pendingPrev = false;
     this.pausePressed = false;
     this.menuPressed = false;
+    this.hold = null;
+    this.useLatch = false;
+    this.usingSecondary = false;
   }
 
   private readonly onKeyUp = (event: KeyboardEvent): void => {
     this.down.delete(event.code);
+    this.endHold(event.code);
   };
 
   /** Losing focus mid-key would otherwise leave the player running forever. */
   private readonly onBlur = (): void => {
     this.down.clear();
     this.pointerDown = false;
+    this.hold = null;
   };
 
   private readonly onPointerDown = (event: PointerEvent): void => {
@@ -357,14 +431,13 @@ export class Input {
     if (!code) return;
     event.preventDefault();
     this.down.add(code);
-    const action = this.keyToAction.get(code);
-    if (action === 'next') this.pendingNext = true;
-    if (action === 'prev') this.pendingPrev = true;
-    if (action === 'pause') this.pausePressed = true;
+    this.press(this.keyToAction.get(code), code);
   };
 
   private readonly onPointerUp = (event: PointerEvent): void => {
     if (event.button === 0) this.pointerDown = false;
+    const released = mouseCode(event.button);
+    if (released) this.endHold(released);
     const code = mouseCode(event.button);
     if (code) this.down.delete(code);
   };
@@ -383,6 +456,7 @@ export class Input {
       this.padMoveX = 0;
       this.padMoveY = 0;
       this.padFire = false;
+      this.padGrenade = false;
       this.padHeld.clear();
       return;
     }
@@ -418,8 +492,12 @@ export class Input {
       const fireHeld = this.pad.fire.some((b) => now.has(b));
       if (!fireHeld) this.padFireLatched = false;
       this.padFire = fireHeld && !this.padFireLatched;
+      this.padGrenade = this.pad.grenade.some((b) => now.has(b));
       if (this.pad.next.some(rose)) this.pendingNext = true;
       if (this.pad.prev.some(rose)) this.pendingPrev = true;
+      // The pad taps rather than holds: a swap between the two slots, a quick ping at the aim.
+      if (this.pad.swap.some(rose)) this.holdHandler?.('secondary', 'tap', 0, 0);
+      if (this.pad.ping.some(rose)) this.holdHandler?.('ping', 'tap', 0, 0);
       if (this.pad.menu.some(rose)) this.menuPressed = true;
     }
     if (this.pad.pause.some(rose)) this.pausePressed = true;
@@ -488,7 +566,23 @@ export class Input {
     }
     command.aimX = aimX;
     command.aimY = aimY;
-    command.fire = this.pointerDown || this.held('fire') || this.padFire;
+    // While a wheel is up the mouse is choosing, not shooting.
+    const choosing = this.hold !== null && this.hold.open;
+    // The use control brings the secondary to hand and fires it; letting go brings the gun back.
+    const wantsSecondary = !choosing && (this.held('use') || this.useLatch);
+    this.useLatch = false;
+    let useFire = false;
+    if (wantsSecondary && !this.usingSecondary) {
+      this.usingSecondary = this.secondaryHandler?.('begin') ?? false;
+      useFire = this.usingSecondary;
+    } else if (wantsSecondary && this.usingSecondary) {
+      useFire = true;
+    } else if (!wantsSecondary && this.usingSecondary) {
+      this.usingSecondary = false;
+      this.secondaryHandler?.('end');
+    }
+    command.fire = !choosing && (this.pointerDown || this.held('fire') || this.padFire || useFire);
+    command.grenade = this.held('grenade') || this.padGrenade;
     command.weaponSlot = this.pendingSlot;
     command.nextWeapon = this.pendingNext;
     command.prevWeapon = this.pendingPrev;

@@ -18,6 +18,8 @@
  */
 import { randomUUID } from 'node:crypto';
 import {
+  MARK_KINDS,
+  type MarkKind,
   DEFAULT_MATCH_CONFIG,
   DIFFICULTIES,
   GAME_SPEEDS,
@@ -160,6 +162,32 @@ export class Room {
 
   participant(id: string): Participant | undefined {
     return this.participants.get(id);
+  }
+
+  /** When each seat last marked the arena, so a held key cannot flood the room. */
+  private readonly markTimes = new Map<string, number[]>();
+
+  /**
+   * Relay a squad mark to every other seat. The kind must be one the wheel
+   * has, the point must lie in the arena, and a seat gets four a second.
+   */
+  relayMark(id: string, kind: unknown, x: number, y: number): boolean {
+    const participant = this.participants.get(id);
+    if (!participant || !participant.connected) return false;
+    if (typeof kind !== 'string' || !(MARK_KINDS as readonly string[]).includes(kind)) return false;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+    const arena = this.arena;
+    if (x < -arena.width || x > arena.width * 2 || y < -arena.height || y > arena.height * 2) return false;
+    const now = Date.now();
+    const recent = (this.markTimes.get(id) ?? []).filter((t) => now - t < 1000);
+    if (recent.length >= 4) return false;
+    recent.push(now);
+    this.markTimes.set(id, recent);
+    const text = encode({ type: 'mark', playerIndex: participant.playerIndex, kind: kind as MarkKind, x, y });
+    for (const other of this.participants.values()) {
+      if (other !== participant && other.connected) other.send(text);
+    }
+    return true;
   }
 
   /**

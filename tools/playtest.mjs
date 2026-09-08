@@ -69,6 +69,12 @@ const SCENARIOS = {
   // The widest room, so the camera has room to lean and the arena's edge does not clamp it.
   lead: `run(4, 'beginner'); return lead()`,
   tips: `run(0, 'beginner'); bot(200); return { tip: g.debugTip() }`,
+  // The loadout with everything unlocked, the grenade key held so the arc shows.
+  'grenade-arc': `run(2, 'beginner'); bot(40); arsenal(); return await arc()`,
+  // The primary wheel open, the pointer on one of its sectors.
+  wheel: `run(2, 'beginner'); bot(40); arsenal(); return await wheel('Digit1')`,
+  // A quick ping at the aim.
+  ping: `run(2, 'beginner'); bot(40); return await quickPing()`,
   'low-health': `run(0, 'beginner'); bot(300); lowHealth(40)`,
 };
 
@@ -149,6 +155,62 @@ const HELPERS = `
     g.debugBot(0);
     g.loop.stop();
     return { lead0, lead50, lead100 };
+  }
+  /** Every weapon in hand with ammo, so the loadout and wheels have something to show. */
+  function arsenal() {
+    const p = g.world.players[0];
+    for (const [id, slot] of p.weapons) { slot.unlocked = true; if (slot.ammo < 12) slot.ammo = 12; }
+    p.invincible = 100000;
+  }
+  const key = (type, code) => window.dispatchEvent(new KeyboardEvent(type, { code, key: code, bubbles: true }));
+  /** Aim up and to the right of the player, so a throw has somewhere to go. */
+  function aimAhead() {
+    const canvas = document.getElementById('view');
+    const rect = canvas.getBoundingClientRect();
+    window.dispatchEvent(new PointerEvent('pointermove', { clientX: rect.left + rect.width * 0.72, clientY: rect.top + rect.height * 0.3, bubbles: true }));
+  }
+  /** Hold the grenade key through a few steps and draw the frame with the arc on it. */
+  async function arc() {
+    aimAhead();
+    key('keydown', 'KeyG');
+    for (let i = 0; i < 30; i++) g.loop.callbacks.step();
+    const p = g.world.players[0];
+    const charge = g.world.grenadeCharge(p);
+    const preview = g.world.grenadePreview(p, charge);
+    g.debugBot(0);
+    g.loop.stop();
+    key('keyup', 'KeyG');
+    return { charge, arcPoints: preview.points.length, bounces: preview.bounces.length, rest: preview.rest };
+  }
+  /** Hold a slot key past the wheel's threshold, point at a sector, and draw it. */
+  async function wheel(code) {
+    key('keydown', code);
+    await new Promise((r) => setTimeout(r, 260));
+    g.input.poll();
+    // The pointer travels right and down from where the wheel opened.
+    const canvas = document.getElementById('view');
+    const rect = canvas.getBoundingClientRect();
+    window.dispatchEvent(new PointerEvent('pointermove', { clientX: rect.left + rect.width * 0.5 + 140, clientY: rect.top + rect.height * 0.5 + 60, bubbles: true }));
+    g.loop.callbacks.step();
+    g.debugBot(0);
+    g.loop.stop();
+    const open = g.input.wheel;
+    const hovered = g.run.hud.wheel ? g.run.hud.wheel.hovered : -1;
+    const options = g.run.hud.wheel ? g.run.hud.wheel.options.map((o) => o.id) : [];
+    const before = g.world.players[0].current;
+    key('keyup', code);
+    for (let i = 0; i < 2; i++) g.loop.callbacks.step();
+    return { open: !!open, options, hovered, before, after: g.world.players[0].current, loadout: g.run.hud.loadout };
+  }
+  /** Tap the ping key and hold the frame with the mark on it. */
+  async function quickPing() {
+    aimAhead();
+    key('keydown', 'KeyF');
+    key('keyup', 'KeyF');
+    for (let i = 0; i < 4; i++) g.loop.callbacks.step();
+    g.debugBot(0);
+    g.loop.stop();
+    return { pings: g.pings.map((p) => ({ kind: p.kind, owner: p.owner })) };
   }
   /** Drain the player to a few points, and hold it there through the frame, so the heartbeat shows. */
   function lowHealth(life) {
@@ -343,6 +405,8 @@ async function runCoop(host) {
       await cdp.send('Page.navigate', { url });
       await loaded;
       await evaluate(cdp, `(async () => { for (let i = 0; i < 400 && !window.__game; i++) await new Promise((r) => setTimeout(r, 50)); await document.fonts.ready; })()`);
+      // Whatever the page throws from here on is reported, not lost.
+      await evaluate(cdp, `(() => { window.__errs = []; window.addEventListener('error', (e) => window.__errs.push(String(e.message || e.error))); window.addEventListener('unhandledrejection', (e) => window.__errs.push('rejection: ' + String(e.reason))); })()`);
     };
     await open(host);
     await open(guest);
@@ -421,6 +485,11 @@ async function runCoop(host) {
       drive(guest, [{ keys: ['KeyA', 'Space'], ms: 1400 }, { keys: ['KeyA', 'KeyS', 'Space'], ms: 1200 }, { keys: ['KeyS', 'Space'], ms: 1200 }, { keys: ['Space'], ms: 1500 }]),
     ]);
     const partnerMarkerSeen = hostStats.partnerMarkers > 0 || guestStats.partnerMarkers > 0;
+    // The guest marks the arena; the host's screen must carry the mark, in the guest's seat.
+    const guestSeat = await evaluate(guest, `(() => { const s = __game.run?.session; if (!s) return -1; const me = s.world.players[s.localPlayerIndex]; __game.ping('enemy', me.x + 60, me.y, s.localPlayerIndex); return s.localPlayerIndex; })()`);
+    await new Promise((r) => setTimeout(r, 400));
+    const hostPings = await evaluate(host, `(__game.pings.map((p) => ({ kind: p.kind, owner: p.owner })))`);
+    const pingRelayed = Array.isArray(hostPings) && hostPings.some((p) => p.kind === 'enemy' && p.owner === guestSeat);
     // Pull the guest's plug: the client must come back to the same seat on
     // its own, with the server having held it, and keep playing.
     const reconnect = await evaluate(
@@ -469,13 +538,20 @@ async function runCoop(host) {
       host: await evaluate(host, `__game.debugStats()?.lastNetClose ?? (window.__game ? '' : null)`),
       guest: await evaluate(guest, `__game.debugStats()?.lastNetClose ?? ''`),
     };
+    const errs = {
+      host: await evaluate(host, `window.__errs ?? []`),
+      guest: await evaluate(guest, `window.__errs ?? []`),
+    };
     const report = {
+      errs,
       closes,
       joinedAs: { host: hostScreen, guest: guestScreen },
       match,
       levels,
       events,
       partnerMarkerSeen,
+      pingRelayed,
+      hostPings,
       earlyReconnect,
       stripsAfterRejoin,
       stripCarried,

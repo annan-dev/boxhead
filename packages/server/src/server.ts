@@ -213,6 +213,11 @@ export function createGameServer(options: GameServerOptions): Promise<GameServer
           joined.setReady(clientId, message.ready === true);
           break;
         }
+        case 'mark': {
+          if (!joined) return;
+          joined.relayMark(clientId, message.kind, Number(message.x), Number(message.y));
+          break;
+        }
         case 'configure': {
           if (!joined || !message.config || typeof message.config !== 'object') return;
           joined.configure(clientId, message.config);

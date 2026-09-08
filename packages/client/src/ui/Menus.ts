@@ -1164,14 +1164,18 @@ export class Menus {
       <dl class="keys">
         <dt>${escapeHtml(this.keyLabel(['up', 'left', 'down', 'right']))}</dt><dd>move</dd>
         <dt>mouse</dt><dd>aim</dd>
-        <dt>click / ${escapeHtml(this.keyLabel(['fire']))}</dt><dd>fire &mdash; most guns fire once per press; hold to charge a grenade</dd>
-        <dt>1 &ndash; 0</dt><dd>select weapon</dd>
-        <dt>${escapeHtml(this.keyLabel(['prev', 'next']))}, wheel</dt><dd>cycle weapons</dd>
+        <dt>click / ${escapeHtml(this.keyLabel(['fire']))}</dt><dd>fire &mdash; most guns fire once per press</dd>
+        <dt>${escapeHtml(this.keyLabel(['use']))}</dt><dd>use the secondary without swapping: a barrel, wall, mine or charge pack goes down while it is held, then the gun comes back</dd>
+        <dt>${escapeHtml(this.keyLabel(['grenade']))}</dt><dd>grenade &mdash; hold to throw farther, release to lob; the arc shows where it lands</dd>
+        <dt>${escapeHtml(this.keyLabel(['primary', 'secondary']))}</dt><dd>primary (a gun) and secondary (a placeable) &mdash; tap to take it in hand,
+          hold and move the mouse to choose what the slot holds</dd>
+        <dt>${escapeHtml(this.keyLabel(['prev', 'next']))}, wheel</dt><dd>cycle the guns</dd>
+        <dt>${escapeHtml(this.keyLabel(['ping']))}</dt><dd>ping where you aim &mdash; hold for the wheel: enemy, going here, crate, hold here, help, devil</dd>
         <dt>${escapeHtml(this.keyLabel(['pause']))}</dt><dd>quick pause</dd>
         <dt>Escape</dt><dd>pause menu: resume, restart, options, quit</dd>
         <dt>R &middot; M &middot; F3</dt><dd>restart while paused &middot; mute &middot; performance stats</dd>
-        <dt>Gamepad</dt><dd>sticks move and aim, trigger fires, bumpers cycle, Start pauses; every
-          button is listed under Options, Controls</dd>
+        <dt>Gamepad</dt><dd>sticks move and aim, trigger fires, LT throws a grenade, bumpers cycle the guns,
+          Y swaps primary and secondary, X pings, Start pauses; every button is listed under Options, Controls</dd>
       </dl>
       </div>
       <div>
@@ -1297,7 +1301,7 @@ export class Menus {
       </section>
       <section data-tab="controls" ${this.optionsTab === 'controls' ? '' : 'hidden'}>
       <p class="hint" style="margin:0 0 12px">Click a key and press the new one, or a mouse button. Shift-click to add a second key
-        beside the first. Weapons stay on 1 to 0; Escape, R, M and F3 are the game's own.</p>
+        beside the first. Escape, R, M and F3 are the game's own.</p>
       <div id="keyNote" class="note bad" hidden></div>
       <div class="controls">
       <div>

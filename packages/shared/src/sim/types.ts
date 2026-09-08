@@ -101,6 +101,9 @@ export interface Player extends Creature {
    * (`CThing_Weapon_ChargePack.Fire`); true when the next press sets them off.
    */
   detonateMode: boolean;
+  /** The grenade control, held apart from the trigger: charging while down, thrown on release. */
+  grenadeHeld: boolean;
+  grenadeHeldTicks: number;
   kills: number;
   /** Deathmatch tally, one per kill credited; unused where the score is shared. */
   score: number;

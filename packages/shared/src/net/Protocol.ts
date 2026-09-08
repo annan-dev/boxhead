@@ -80,6 +80,7 @@ export function sanitizeCommand(raw: unknown, width: number, height: number): In
     aimX: clamp(num(r['aimX']), -width, width * 2),
     aimY: clamp(num(r['aimY']), -height, height * 2),
     fire: r['fire'] === true,
+    grenade: r['grenade'] === true,
     weaponSlot: typeof slot === 'number' && Number.isInteger(slot) && slot >= 0 && slot <= 9 ? slot : null,
     nextWeapon: r['nextWeapon'] === true,
     prevWeapon: r['prevWeapon'] === true,
@@ -100,6 +101,13 @@ export type NetEvent =
   | { type: 'popup'; tick: number; seq: number; x: number; y: number; text: string; kind: Popup['kind'] }
   | { type: 'message'; tick: number; seq: number; text: string; kind: Message['kind']; life: number };
 
+/**
+ * The ping wheel's marks, for a squad to talk without typing: a place, an
+ * enemy, a crate, a call for help, a warning, a spot to hold.
+ */
+export const MARK_KINDS = ['look', 'enemy', 'go', 'loot', 'help', 'danger', 'defend'] as const;
+export type MarkKind = (typeof MARK_KINDS)[number];
+
 /** Client to server. */
 export type ClientMessage =
   | {
@@ -115,6 +123,8 @@ export type ClientMessage =
   /** Normally one command; several only when a stall left some unsent. */
   | { type: 'input'; commands: StampedCommand[] }
   | { type: 'ping'; sent: number }
+  /** A mark on the arena for the squad; the server relays it to the other seats. */
+  | { type: 'mark'; kind: MarkKind; x: number; y: number }
   | { type: 'ready'; ready: boolean }
   /** Host only. */
   | { type: 'configure'; config: Partial<Omit<MatchConfig, 'seed'>> }
@@ -156,6 +166,7 @@ export type ServerMessage =
   | { type: 'snapshot'; tick: number; ackTick: number; snapshot: WorldSnapshot; events: NetEvent[] }
   | { type: 'playerJoined'; playerIndex: number; name: string; character: string }
   | { type: 'playerLeft'; playerIndex: number }
+  | { type: 'mark'; playerIndex: number; kind: MarkKind; x: number; y: number }
   | { type: 'pong'; sent: number; serverTime: number; tick: number };
 
 export function encode(message: ServerMessage | ClientMessage): string {

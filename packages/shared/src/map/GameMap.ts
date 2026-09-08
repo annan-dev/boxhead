@@ -12,6 +12,9 @@ import type { ExtractedRoom, RoomBlock, TextureLayer } from '../art/ArtTypes.js'
 /** Default collision cell; the original places everything on a 32px lattice. */
 export const CELL_SIZE = 32;
 
+/** How tall a player-built barricade stands, in world pixels: one cube's worth. */
+export const FAKE_WALL_HEIGHT = 26;
+
 export const Tile = {
   Floor: 0,
   /** Permanent geometry from the room layout. */
@@ -50,6 +53,12 @@ export class GameMap {
   readonly spawns: SpawnPoints;
   /** Solid blocks with their heights, for drawing the arena in 3D. */
   readonly blocks: readonly RoomBlock[];
+  /**
+   * How tall each solid cell stands: the rise of the block on it, or
+   * Infinity for a solid cell no block covers (the arena's edge), which a
+   * lobbed grenade can never clear.
+   */
+  private readonly heights: Float32Array;
   /** The arena's ground art, already positioned in world space. */
   readonly floorLayers: readonly TextureLayer[];
   /** Bumped whenever geometry changes, so navigation knows to rebuild. */
@@ -73,6 +82,19 @@ export class GameMap {
     this.integrity = new Uint16Array(this.cols * this.rows);
     this.occupied = new Uint8Array(this.cols * this.rows);
     this.blocks = room.blocks;
+    this.heights = new Float32Array(this.cols * this.rows).fill(Infinity);
+    for (const block of room.blocks) {
+      const x0 = Math.max(0, Math.floor((block.x + 4) / this.cell));
+      const y0 = Math.max(0, Math.floor((block.y + 4) / this.cell));
+      const x1 = Math.min(this.cols - 1, Math.floor((block.x + block.w - 4) / this.cell));
+      const y1 = Math.min(this.rows - 1, Math.floor((block.y + block.h - 4) / this.cell));
+      for (let cy = y0; cy <= y1; cy++) {
+        for (let cx = x0; cx <= x1; cx++) {
+          const i = cy * this.cols + cx;
+          this.heights[i] = Number.isFinite(this.heights[i]!) ? Math.max(this.heights[i]!, block.rise) : block.rise;
+        }
+      }
+    }
     this.floorLayers = room.floor.layers;
     this.spawns = {
       zombies: room.spawns.zombies.map((p) => ({ ...p })),
@@ -116,6 +138,18 @@ export class GameMap {
 
   isBlocked(cx: number, cy: number): boolean {
     return this.tileAt(cx, cy) !== Tile.Floor;
+  }
+
+  /**
+   * Height of what stands on a cell, for things that fly: 0 on open floor,
+   * a block's rise, a barricade's height, Infinity beyond the arena.
+   */
+  obstacleHeight(cx: number, cy: number): number {
+    const tile = this.tileAt(cx, cy);
+    if (tile === Tile.Floor) return 0;
+    if (tile === Tile.Breakable) return FAKE_WALL_HEIGHT;
+    if (!this.inBounds(cx, cy)) return Infinity;
+    return this.heights[cy * this.cols + cx]!;
   }
 
   blockedAtPoint(x: number, y: number): boolean {

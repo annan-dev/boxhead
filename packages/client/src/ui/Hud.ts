@@ -1,12 +1,13 @@
 /**
  * Heads-up display, drawn in screen space over the world.
  *
- * Laid out the way the original's HUD is: the score and multiplier sit in a
- * panel at the top, with the multiplier's drain bar under them, and each
- * player's health is a small bar just above their head rather than a gauge
- * in a corner. The weapon strip along the bottom is this port's own addition,
- * kept light. The look is the menus': dark slabs with a brass hairline, bone
- * type, blood red for anything that matters.
+ * Laid out the way a modern shooter lays it out: the loadout in the bottom
+ * right (the two weapon slots and the grenade), the squad's health bars in
+ * the bottom left, a minimap in the top left, and the original's score and
+ * multiplier panel in the top right with the multiplier's drain bar under
+ * it. Each player's health is also a small bar just above their head, as the
+ * original drew it. The look is the menus': dark slabs with a brass
+ * hairline, bone type, blood red for anything that matters.
  *
  * A few things here are animated for the eye only -- the multiplier pops
  * when it climbs, the drain bar flickers before it drops, the screen beats
@@ -14,15 +15,23 @@
  * frame, never written back.
  */
 import {
+  CHARACTERS,
   WEAPONS,
-  WEAPON_ORDER,
   levelDef,
   nextAward,
   statsFor,
+  Tile,
   type Player,
+  type WeaponId,
   type World,
 } from '@boxhead/shared';
 import type { Camera } from '../render/Camera.js';
+import type { HoldAction } from '../input/Input.js';
+import { PING_LIFE, PING_STYLES, drawGlyph, squadColour, type Ping } from './Pings.js';
+import { drawWeaponIcon } from './WeaponIcons.js';
+
+/** How much arena the minimap shows across its width, in world pixels. */
+const MINIMAP_SPAN = 560;
 
 const DISPLAY = '"Anton", Impact, "Arial Black", "Segoe UI Black", sans-serif';
 const BODY = '"Segoe UI", system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif';
@@ -42,6 +51,37 @@ const INK_SHADOW = 'rgba(0,0,0,0.85)';
 /** Frames the multiplier stays swollen after climbing. */
 const POP_FRAMES = 14;
 
+export interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** One choice on a wheel. */
+export interface WheelOption {
+  id: string;
+  label: string;
+  /** A second line: ammo, or a key. */
+  sub: string;
+  colour?: string;
+  /** Shown but not choosable: an empty gun, say. */
+  disabled?: boolean;
+}
+
+export interface WheelView {
+  kind: HoldAction;
+  title: string;
+  options: WheelOption[];
+  /** Index the pointer points at, or -1 in the dead zone. */
+  hovered: number;
+}
+
+export interface Loadout {
+  primary: WeaponId;
+  secondary: WeaponId | null;
+}
+
 export class Hud {
   private lastMultiplier = 1;
   private pop = 0;
@@ -52,31 +92,47 @@ export class Hud {
   highContrast = false;
   /** Partner rings drawn on the last frame, for the harness. */
   partnerMarkers = 0;
-  /** Where the weapon strip ended up this frame, so markers can keep clear. */
-  private stripExtents: Array<{ left: number; right: number; top: number }> = [];
+  /** The two slots as the player has them; the world only knows what is in hand. */
+  loadout: Loadout = { primary: 'pistol', secondary: null };
+  /** Marks on the arena, newest last. */
+  pings: Ping[] = [];
+  /** The wheel that is up, if any. */
+  wheel: WheelView | null = null;
+  /** A character's head at a size, for the squad bars; null draws an initial instead. */
+  portraitOf: (characterId: string, size: number) => HTMLCanvasElement | null = () => null;
+  /** The key caps to show on the loadout and wheel. */
+  keys: { primary: string; secondary: string; grenade: string; ping: string } = { primary: '1', secondary: '2', grenade: 'G', ping: 'F' };
+  /** Panels drawn this frame, so the threat markers keep clear of them. */
+  private reserved: Rect[] = [];
+  private lastReserved: Rect[] = [];
+  /** The minimap's picture of the arena, redrawn when the arena changes. */
+  private minimapCanvas: HTMLCanvasElement | null = null;
+  private minimapRevision = -1;
+  private minimapScale = 0;
 
   /**
-   * Lay the strip out: how wide each slot can be so the whole arsenal fits
-   * the screen, and where it sits. One place, so the drawing and the tests
-   * agree.
+   * Where the panels go at a canvas size: the loadout's two cards and the
+   * grenade chip in the bottom right, the squad in the bottom left, the
+   * minimap in the top left. One place, so the drawing and the tests agree.
    */
-  static layoutStrip(
-    canvasWidth: number,
-    s: number,
-    slots: number,
-  ): { slotWidth: number; gap: number; left: number; width: number; centre: number } {
-    const centre = canvasWidth / 2;
-    const room = canvasWidth - 24 * s;
-    const natural = 64 * s;
-    const gap = 5 * s;
-    const slotWidth = Math.max(30 * s, Math.min(natural, (room - (slots - 1) * gap) / Math.max(1, slots)));
-    const width = slots * slotWidth + (slots - 1) * gap;
-    return { slotWidth, gap, left: centre - width / 2, width, centre };
+  static layout(width: number, height: number, s: number): { primary: Rect; secondary: Rect; grenade: Rect; squad: Rect; minimap: Rect } {
+    const margin = 14 * s;
+    const cardH = 56 * s;
+    const primaryW = Math.min(158 * s, width * 0.22);
+    const secondaryW = Math.min(122 * s, width * 0.18);
+    const gap = 6 * s;
+    const secondary = { x: width - margin - secondaryW, y: height - margin - cardH, w: secondaryW, h: cardH };
+    const primary = { x: secondary.x - gap - primaryW, y: secondary.y, w: primaryW, h: cardH };
+    const grenade = { x: primary.x - gap - 54 * s, y: secondary.y + 10 * s, w: 54 * s, h: cardH - 10 * s };
+    const squadW = Math.min(196 * s, width * 0.26);
+    const squad = { x: margin, y: height - margin - 30 * s, w: squadW, h: 30 * s };
+    const minimap = { x: 12 * s, y: 10 * s, w: Math.min(172 * s, width * 0.24), h: Math.min(118 * s, height * 0.24) };
+    return { primary, secondary, grenade, squad, minimap };
   }
 
   constructor(
     private readonly world: World,
-    /** Whose weapons and ammo the strip along the bottom shows. */
+    /** Whose loadout and health the corners show. */
     private readonly localPlayerIndex = 0,
     /** Name over a player, for networked play; null draws nothing. */
     private readonly nameOf: (playerIndex: number) => string | null = () => null,
@@ -108,22 +164,24 @@ export class Hud {
     const player = world.players[this.localPlayerIndex];
     if (player && player.state === 'alive') this.drawLowHealth(ctx, player);
 
-    this.stripExtents.length = 0;
+    this.reserved = [];
     this.drawPopups(ctx, camera, scale);
     for (const other of world.players) {
       if (!other.connected) continue;
       this.drawHealth(ctx, camera, other, scale);
       if (other.index !== this.localPlayerIndex) this.drawName(ctx, camera, other, scale);
     }
+    this.drawPings(ctx, camera, player ?? null, scale);
     if (player && player.state === 'alive') this.drawThreatMarkers(ctx, camera, player, scale);
-    if (player && pointer) this.drawReticle(ctx, player, pointer, scale);
-    if (player) this.drawWeapons(ctx, player, scale);
+    if (player && pointer && !this.wheel) this.drawReticle(ctx, player, pointer, scale);
+    if (player) this.drawLoadout(ctx, player, scale);
+    this.drawSquad(ctx, scale);
+    this.drawMinimap(ctx, camera, scale);
     this.drawScore(ctx, scale);
     this.drawMessages(ctx, scale);
-    this.lastStripExtents = this.stripExtents.map((e) => ({ ...e }));
+    if (this.wheel) this.drawWheel(ctx, this.wheel, scale);
+    this.lastReserved = this.reserved;
   }
-
-  private lastStripExtents: Array<{ left: number; right: number; top: number }> = [];
 
   /** A slab with a hairline of brass, the way the menu panels are framed. */
   private slab(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, s: number, accent = BRASS): void {
@@ -144,11 +202,21 @@ export class Hud {
     ctx.fillText(value, x, y);
   }
 
-  /**
-   * A heartbeat of red from the edges once health is low. The world's own
-   * hurt vignette answers a hit; this one keeps nagging until the player
-   * has healed, which is the thing they would otherwise not notice.
-   */
+  /** A key cap: a small dark square with the key's name. */
+  private keycap(ctx: CanvasRenderingContext2D, key: string, x: number, y: number, s: number, lit = false): void {
+    const size = 13 * s;
+    ctx.fillStyle = lit ? 'rgba(230,207,148,0.95)' : 'rgba(0,0,0,0.7)';
+    ctx.fillRect(x, y, size, size);
+    ctx.strokeStyle = lit ? '#fff2cf' : BRASS;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + 0.5, y + 0.5, size - 1, size - 1);
+    ctx.font = `800 ${(key.length > 2 ? 6.5 : 8) * s}px ${BODY}`;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = lit ? '#1a1408' : BRASS_BRIGHT;
+    ctx.fillText(key, x + size / 2, y + size * 0.74);
+    ctx.textAlign = 'left';
+  }
+
   /** The heartbeat's strength this tick at a life ratio: two quick beats then a rest, faster as it gets worse. */
   heartbeat(ratio: number): number {
     return Hud.heartbeatAt(this.world.tick, ratio);
@@ -172,6 +240,11 @@ export class Hud {
     return Math.max(pulse(0, 1), pulse(0.25, 0.55));
   }
 
+  /**
+   * A heartbeat of red from the edges once health is low. The world's own
+   * hurt vignette answers a hit; this one keeps nagging until the player
+   * has healed, which is the thing they would otherwise not notice.
+   */
   private drawLowHealth(ctx: CanvasRenderingContext2D, player: Player): void {
     const ratio = player.life / player.maxLife;
     if (ratio > 0.3) return;
@@ -201,6 +274,17 @@ export class Hud {
     }
   }
 
+  /** Slide a point out of any panel it landed in, toward the middle of the screen. */
+  private keepClear(x: number, y: number, s: number, height: number): { x: number; y: number } {
+    for (const r of this.lastReserved) {
+      const pad = 6 * s;
+      if (x < r.x - pad || x > r.x + r.w + pad || y < r.y - pad || y > r.y + r.h + pad) continue;
+      // A panel in the top half pushes down, one in the bottom half pushes up.
+      y = r.y + r.h / 2 < height / 2 ? r.y + r.h + pad : r.y - pad;
+    }
+    return { x, y };
+  }
+
   /**
    * Chevrons along the screen edge pointing at enemies that are out of view,
    * so a large arena cannot hide where the wave is coming from. One marker
@@ -228,13 +312,17 @@ export class Hud {
       if (!current || d < current.d || (devil && !current.devil)) nearest[bucket] = { d, angle, devil };
       any = true;
     }
-    // A teammate out of view is worth a marker too, in bone, so a pair can find each other.
-    const partners: Array<{ angle: number; d: number }> = [];
+    // A teammate out of view is worth a marker too, in their colour, so a squad can find each other.
+    const partners: Array<{ angle: number; d: number; colour: string }> = [];
     for (const other of this.world.players) {
       if (other === player || !other.connected || other.state === 'dead') continue;
       const screen = camera.worldToScreen(other.x, other.y);
       if (screen.x > -10 && screen.x < width + 10 && screen.y > -10 && screen.y < height + 10) continue;
-      partners.push({ angle: Math.atan2(other.y - player.y, other.x - player.x), d: Math.hypot(other.x - player.x, other.y - player.y) });
+      partners.push({
+        angle: Math.atan2(other.y - player.y, other.x - player.x),
+        d: Math.hypot(other.x - player.x, other.y - player.y),
+        colour: squadColour(other.index),
+      });
     }
     this.partnerMarkers = partners.length;
     if (!any && partners.length === 0) return;
@@ -247,8 +335,9 @@ export class Hud {
       const tx = cos > 0 ? (width - margin - at.x) / cos : cos < 0 ? (margin - at.x) / cos : Infinity;
       const ty = sin > 0 ? (height - margin - at.y) / sin : sin < 0 ? (margin - at.y) / sin : Infinity;
       const t = Math.max(0, Math.min(tx, ty));
-      const x = Math.max(margin, Math.min(width - margin, at.x + cos * t));
-      const y = Math.max(margin, Math.min(height - margin, at.y + sin * t));
+      const clear = this.keepClear(at.x + cos * t, at.y + sin * t, s, height);
+      const x = Math.max(margin, Math.min(width - margin, clear.x));
+      const y = Math.max(margin, Math.min(height - margin, clear.y));
       // A ring with a dot, nothing like a threat's chevron: a friend that way.
       ctx.translate(x, y);
       ctx.beginPath();
@@ -256,36 +345,27 @@ export class Hud {
       ctx.strokeStyle = 'rgba(0,0,0,0.7)';
       ctx.lineWidth = 4 * s;
       ctx.stroke();
-      ctx.strokeStyle = 'rgba(233,226,208,0.9)';
+      ctx.strokeStyle = partner.colour;
       ctx.lineWidth = 2 * s;
       ctx.stroke();
       ctx.beginPath();
       ctx.arc(Math.cos(partner.angle) * 4 * s, Math.sin(partner.angle) * 4 * s, 1.8 * s, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(233,226,208,0.95)';
+      ctx.fillStyle = partner.colour;
       ctx.fill();
       ctx.setTransform(1, 0, 0, 1, 0, 0);
     }
     for (const marker of nearest) {
       if (!marker) continue;
       // Slide the marker along the ray from the player until it meets the
-      // inset screen rectangle.
+      // inset screen rectangle, then out of any panel it landed in.
       const cos = Math.cos(marker.angle);
       const sin = Math.sin(marker.angle);
       const tx = cos > 0 ? (width - margin - at.x) / cos : cos < 0 ? (margin - at.x) / cos : Infinity;
       const ty = sin > 0 ? (height - margin - at.y) / sin : sin < 0 ? (margin - at.y) / sin : Infinity;
       const t = Math.max(0, Math.min(tx, ty));
-      let x = at.x + cos * t;
-      let y = at.y + sin * t;
-      // Keep out of the score panel (top right) and the weapon strip (bottom
-      // centre): a marker that lands in either is pushed to the panel's edge.
-      if (x > width - 240 * s && y < 84 * s) y = 84 * s;
-      for (const strip of this.lastStripExtents) {
-        if (x > strip.left - 8 * s && x < strip.right + 8 * s && y > strip.top) y = strip.top;
-      }
-      // The hint bar sits above the strip for a few seconds; keep off it too.
-      if (Math.abs(x - width / 2) < 240 * s && y > height - 112 * s) y = height - 112 * s;
-      x = Math.max(margin, Math.min(width - margin, x));
-      y = Math.max(margin, Math.min(height - margin, y));
+      const clear = this.keepClear(at.x + cos * t, at.y + sin * t, s, height);
+      const x = Math.max(margin, Math.min(width - margin, clear.x));
+      const y = Math.max(margin, Math.min(height - margin, clear.y));
       // Close threats draw bigger and brighter; far ones fade toward the edge.
       const near = Math.max(0, Math.min(1, 1 - (marker.d - 200) / 900));
       const size = (7 + near * 6) * s;
@@ -356,14 +436,14 @@ export class Hud {
     ctx.restore();
   }
 
-  /** Another player's name under their health bar. */
+  /** Another player's name under their health bar, in their squad colour. */
   private drawName(ctx: CanvasRenderingContext2D, camera: Camera, player: Player, s: number): void {
     const name = this.nameOf(player.index);
     if (!name || player.state === 'dead') return;
     const at = camera.worldToScreen(player.x, player.y);
     ctx.font = `800 ${11 * s}px ${BODY}`;
     ctx.textAlign = 'center';
-    this.text(ctx, name, at.x, at.y - 34 * s, BONE, s);
+    this.text(ctx, name, at.x, at.y - 34 * s, squadColour(player.index), s);
     ctx.textAlign = 'left';
   }
 
@@ -400,52 +480,433 @@ export class Hud {
     }
   }
 
-  private drawWeapons(ctx: CanvasRenderingContext2D, player: Player, s: number): void {
-    const slots = WEAPON_ORDER.filter((id) => player.weapons.get(id)?.unlocked);
-    // A full arsenal must still fit a narrow window.
-    const layout = Hud.layoutStrip(ctx.canvas.width, s, slots.length);
-    const { slotWidth, gap } = layout;
-    const slotHeight = 34 * s;
-    let x = layout.left;
-    const y = ctx.canvas.height - 16 * s - slotHeight;
-    this.stripExtents.push({ left: layout.left, right: layout.left + layout.width, top: y - 12 * s });
+  // ---- loadout, bottom right ----------------------------------------------
 
-    for (const id of slots) {
-      const slot = player.weapons.get(id)!;
-      const def = WEAPONS[id];
-      const stats = statsFor(player.stats, id);
-      const infinite = def.infiniteAmmo || stats.infiniteAmmo;
-      const active = player.current === id;
-      const empty = !infinite && slot.ammo <= 0;
-      const low = !infinite && !empty && slot.ammo <= Math.max(2, Math.round(def.totalAmmo * 0.15));
+  /** The ammo a weapon shows: a count, the infinity sign, or a dash when the slot is empty. */
+  private ammoLabel(player: Player, id: WeaponId): { text: string; colour: string; empty: boolean } {
+    const def = WEAPONS[id];
+    const slot = player.weapons.get(id);
+    const stats = statsFor(player.stats, id);
+    const infinite = def.infiniteAmmo || stats.infiniteAmmo;
+    if (!slot?.unlocked) return { text: '—', colour: MUTED, empty: true };
+    const empty = !infinite && slot.ammo <= 0;
+    const low = !infinite && !empty && slot.ammo <= Math.max(2, Math.round(def.totalAmmo * 0.15));
+    return { text: infinite ? '∞' : String(slot.ammo), colour: empty ? RED_HI : low ? AMBER : BONE, empty };
+  }
 
-      if (active) {
-        ctx.fillStyle = SLAB_EDGE;
-        ctx.fillRect(x, y + 3 * s, slotWidth, slotHeight);
-        ctx.fillStyle = 'rgba(122,8,16,0.92)';
-        ctx.fillRect(x, y - 3 * s, slotWidth, slotHeight + 3 * s);
-        ctx.fillStyle = RED;
-        ctx.fillRect(x, y - 3 * s, slotWidth, 2 * s);
-        ctx.strokeStyle = 'rgba(255,90,100,0.7)';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(x + 0.5, y - 3 * s + 0.5, slotWidth - 1, slotHeight + 3 * s - 1);
-      } else {
-        this.slab(ctx, x, y, slotWidth, slotHeight, s, empty ? 'rgba(120,30,30,0.5)' : BRASS);
-      }
-      const top = active ? y - 3 * s : y;
-
-      ctx.font = `700 ${9 * s}px ${BODY}`;
-      this.text(ctx, String(def.slot), x + 7 * s, top + 13 * s, active ? '#ffb3b8' : BRASS_BRIGHT, s);
-
-      ctx.font = `400 ${(slotWidth < 50 * s ? 11 : 13) * s}px ${DISPLAY}`;
-      this.text(ctx, def.shortName, x + 17 * s, top + 14 * s, active ? '#ffffff' : empty ? MUTED : BONE, s);
-
-      ctx.font = `700 ${10 * s}px ${BODY}`;
-      const ammoColor = active ? 'rgba(255,255,255,0.9)' : empty ? RED_HI : low ? AMBER : BONE_DIM;
-      this.text(ctx, infinite ? '∞' : String(slot.ammo), x + 7 * s, top + 27 * s, ammoColor, s);
-
-      x += slotWidth + gap;
+  /** One weapon card: the key, the name, and the ammo large on the right. */
+  private card(ctx: CanvasRenderingContext2D, rect: Rect, key: string, id: WeaponId | null, active: boolean, player: Player, s: number): void {
+    const { x, y, w, h } = rect;
+    if (active) {
+      ctx.fillStyle = SLAB_EDGE;
+      ctx.fillRect(x, y + 3 * s, w, h);
+      ctx.fillStyle = 'rgba(28,20,22,0.94)';
+      ctx.fillRect(x, y - 4 * s, w, h + 4 * s);
+      ctx.fillStyle = RED;
+      ctx.fillRect(x, y - 4 * s, w, 2 * s);
+      ctx.strokeStyle = 'rgba(255,90,100,0.7)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x + 0.5, y - 4 * s + 0.5, w - 1, h + 4 * s - 1);
+    } else {
+      this.slab(ctx, x, y, w, h, s, id ? BRASS : 'rgba(201,167,90,0.25)');
     }
+    const top = active ? y - 4 * s : y;
+    this.keycap(ctx, key, x + 6 * s, top + 6 * s, s, active);
+    if (!id) {
+      ctx.font = `700 ${7.5 * s}px ${BODY}`;
+      this.text(ctx, 'NONE YET', x + 24 * s, top + 16 * s, MUTED, s);
+      return;
+    }
+    const def = WEAPONS[id];
+    const ammo = this.ammoLabel(player, id);
+    // The icon carries the name; the ammo sits large beside it.
+    const icon = Math.min(h - 8 * s, 40 * s);
+    drawWeaponIcon(ctx, id, x + 24 * s + icon / 2, top + h / 2 + 1 * s, icon, active ? '#ffffff' : ammo.empty ? MUTED : BONE);
+    ctx.font = `400 ${(w < 130 * s ? 20 : 24) * s}px ${DISPLAY}`;
+    ctx.textAlign = 'right';
+    this.text(ctx, ammo.text, x + w - 9 * s, top + h - 9 * s, active ? ammo.colour : ammo.empty ? ammo.colour : BONE_DIM, s);
+    ctx.textAlign = 'left';
+    if (def.places === 'chargepack' && player.detonateMode && active) {
+      ctx.font = `700 ${6.5 * s}px ${BODY}`;
+      ctx.textAlign = 'right';
+      this.text(ctx, 'DETONATE', x + w - 9 * s, top + 13 * s, RED_HI, s);
+      ctx.textAlign = 'left';
+    }
+  }
+
+  private drawLoadout(ctx: CanvasRenderingContext2D, player: Player, s: number): void {
+    const { width, height } = ctx.canvas;
+    const lay = Hud.layout(width, height, s);
+    const { primary, secondary } = this.loadout;
+    const primaryActive = player.current === primary;
+    const secondaryActive = secondary !== null && player.current === secondary;
+
+    this.card(ctx, lay.primary, this.keys.primary, primary, primaryActive, player, s);
+    this.card(ctx, lay.secondary, this.keys.secondary, secondary, secondaryActive, player, s);
+
+    // The grenade chip: the key, a grenade, and how many are left.
+    const g = lay.grenade;
+    const grenades = player.weapons.get('grenade');
+    const has = !!grenades?.unlocked;
+    const charge = this.world.grenadeCharge(player);
+    this.slab(ctx, g.x, g.y, g.w, g.h, s, has ? (charge > 0 ? '#ff3040' : BRASS) : 'rgba(201,167,90,0.25)');
+    this.keycap(ctx, this.keys.grenade, g.x + 5 * s, g.y + 5 * s, s, charge > 0);
+    drawWeaponIcon(ctx, 'grenade', g.x + g.w / 2 + 5 * s, g.y + g.h / 2 + 1 * s, 26 * s, has ? (charge > 0 ? RED_HI : BONE) : MUTED);
+    ctx.font = `400 ${13 * s}px ${DISPLAY}`;
+    ctx.textAlign = 'right';
+    this.text(ctx, has ? String(grenades!.ammo) : '—', g.x + g.w - 5 * s, g.y + g.h - 5 * s, has ? (grenades!.ammo > 0 ? BONE : RED_HI) : MUTED, s);
+    ctx.textAlign = 'left';
+    if (charge > 0) {
+      // The throw's power, a bar that fills while the key is held.
+      ctx.fillStyle = 'rgba(255,255,255,0.12)';
+      ctx.fillRect(g.x + 4 * s, g.y + g.h - 3 * s, g.w - 8 * s, 2 * s);
+      ctx.fillStyle = RED_HI;
+      ctx.fillRect(g.x + 4 * s, g.y + g.h - 3 * s, (g.w - 8 * s) * charge, 2 * s);
+    }
+
+    this.reserved.push({
+      x: g.x,
+      y: Math.min(g.y, lay.primary.y) - 4 * s,
+      w: lay.secondary.x + lay.secondary.w - g.x,
+      h: height - Math.min(g.y, lay.primary.y),
+    });
+  }
+
+  // ---- squad, bottom left --------------------------------------------------
+
+  /** The squad's health, one row each, the local player first. */
+  private drawSquad(ctx: CanvasRenderingContext2D, s: number): void {
+    const { width, height } = ctx.canvas;
+    const lay = Hud.layout(width, height, s);
+    const players = this.world.players.filter((p) => p.connected);
+    players.sort((a, b) => (a.index === this.localPlayerIndex ? -1 : b.index === this.localPlayerIndex ? 1 : a.index - b.index));
+    const rowH = lay.squad.h;
+    const gap = 5 * s;
+    let y = lay.squad.y;
+    for (const p of players) {
+      const me = p.index === this.localPlayerIndex;
+      const colour = squadColour(p.index);
+      const x = lay.squad.x;
+      const w = lay.squad.w;
+      this.slab(ctx, x, y, w, rowH, s, me ? BRASS : 'rgba(201,167,90,0.3)');
+      // A portrait tile: the character's own head on their squad colour.
+      const tile = rowH - 8 * s;
+      ctx.fillStyle = p.state === 'dead' ? '#3a2326' : colour;
+      ctx.fillRect(x + 4 * s, y + 4 * s, tile, tile);
+      const head = this.portraitOf(p.characterId, Math.round(tile));
+      if (head) {
+        if (p.state === 'dead') ctx.globalAlpha = 0.45;
+        ctx.drawImage(head, x + 4 * s, y + 4 * s, tile, tile);
+        ctx.globalAlpha = 1;
+      } else {
+        ctx.font = `400 ${13 * s}px ${DISPLAY}`;
+        ctx.textAlign = 'center';
+        ctx.fillStyle = 'rgba(0,0,0,0.85)';
+        const character = CHARACTERS.find((c) => c.id === p.characterId);
+        ctx.fillText((character?.name ?? p.characterId).slice(0, 1).toUpperCase(), x + 4 * s + tile / 2, y + 4 * s + tile * 0.74);
+        ctx.textAlign = 'left';
+      }
+      const name = this.nameOf(p.index) ?? (me ? 'YOU' : `P${p.index + 1}`);
+      ctx.font = `800 ${9 * s}px ${BODY}`;
+      this.text(ctx, name.toUpperCase().slice(0, 14), x + tile + 10 * s, y + 12 * s, p.state === 'dead' ? MUTED : me ? BONE : colour, s);
+      // The bar, and the number beside it.
+      const barX = x + tile + 10 * s;
+      const barW = w - tile - 44 * s;
+      const barY = y + rowH - 11 * s;
+      const ratio = p.state === 'dead' ? 0 : Math.max(0, Math.min(1, p.life / p.maxLife));
+      ctx.fillStyle = 'rgba(255,255,255,0.08)';
+      ctx.fillRect(barX, barY, barW, 5 * s);
+      ctx.fillStyle = ratio > 0.5 ? '#3ec04a' : ratio > 0.25 ? AMBER : RED;
+      ctx.fillRect(barX, barY, barW * ratio, 5 * s);
+      if (ratio > 0 && ratio <= 0.3) {
+        const beat = this.heartbeat(ratio);
+        ctx.strokeStyle = `rgba(255,255,255,${0.2 + beat * 0.6})`;
+        ctx.lineWidth = 1 * s;
+        ctx.strokeRect(barX - 0.5, barY - 0.5, barW + 1, 5 * s + 1);
+      }
+      ctx.font = `700 ${8 * s}px ${BODY}`;
+      ctx.textAlign = 'right';
+      this.text(ctx, p.state === 'dead' ? 'DOWN' : String(Math.ceil(p.life)), x + w - 6 * s, barY + 5 * s, p.state === 'dead' ? RED_HI : BONE_DIM, s);
+      ctx.textAlign = 'left';
+      if (p.invincible > 0 && p.state === 'alive') {
+        ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x + 4 * s + 0.5, y + 4 * s + 0.5, tile - 1, tile - 1);
+      }
+      y -= rowH + gap;
+    }
+    const top = y + rowH + gap;
+    this.reserved.push({ x: lay.squad.x, y: top, w: lay.squad.w, h: height - top });
+  }
+
+  // ---- minimap, top left ---------------------------------------------------
+
+  /** The whole arena at the minimap's scale, cached until the arena changes. */
+  private minimapPicture(scale: number): HTMLCanvasElement {
+    const map = this.world.map;
+    const pw = Math.max(1, Math.round(map.width * scale));
+    const ph = Math.max(1, Math.round(map.height * scale));
+    if (!this.minimapCanvas || this.minimapRevision !== map.revision || this.minimapScale !== scale) {
+      const canvas = this.minimapCanvas ?? document.createElement('canvas');
+      canvas.width = pw;
+      canvas.height = ph;
+      const c = canvas.getContext('2d')!;
+      c.fillStyle = '#34363e';
+      c.fillRect(0, 0, pw, ph);
+      const cell = map.cell * scale;
+      for (let cy = 0; cy < map.rows; cy++) {
+        for (let cx = 0; cx < map.cols; cx++) {
+          const tile = map.tileAt(cx, cy);
+          if (tile === Tile.Floor) continue;
+          c.fillStyle = tile === Tile.Breakable ? '#b08a40' : '#8c8270';
+          c.fillRect(cx * cell, cy * cell, Math.ceil(cell), Math.ceil(cell));
+        }
+      }
+      this.minimapCanvas = canvas;
+      this.minimapRevision = map.revision;
+      this.minimapScale = scale;
+    }
+    return this.minimapCanvas;
+  }
+
+  /**
+   * A window of the arena around the player, the way a shooter's minimap
+   * follows them, rather than the whole map at once: beyond the arena's
+   * edge is the dark.
+   */
+  private drawMinimap(ctx: CanvasRenderingContext2D, camera: Camera, s: number): void {
+    const { width, height } = ctx.canvas;
+    const lay = Hud.layout(width, height, s);
+    const r = lay.minimap;
+    this.slab(ctx, r.x, r.y, r.w, r.h, s);
+    const inset = 3;
+    const view = { x: r.x + inset, y: r.y + inset, w: r.w - inset * 2, h: r.h - inset * 2 };
+    const k = view.w / MINIMAP_SPAN;
+    const picture = this.minimapPicture(k);
+    const me = this.world.players[this.localPlayerIndex];
+    const centre = me ? { x: me.x, y: me.y } : { x: camera.x, y: camera.y };
+    // World origin of the window, in world pixels, and where it lands on screen.
+    const worldX = centre.x - view.w / 2 / k;
+    const worldY = centre.y - view.h / 2 / k;
+    const ox = view.x - worldX * k;
+    const oy = view.y - worldY * k;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(view.x, view.y, view.w, view.h);
+    ctx.clip();
+    ctx.fillStyle = '#121317';
+    ctx.fillRect(view.x, view.y, view.w, view.h);
+    ctx.drawImage(picture, ox, oy);
+    // What the screen shows, as a faint frame.
+    ctx.strokeStyle = 'rgba(233,226,208,0.35)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(ox + camera.originX * k + 0.5, oy + camera.originY * k + 0.5, camera.viewWidth * k, camera.viewHeight * k);
+    // Marks, then the squad over them.
+    for (const ping of this.pings) {
+      const style = PING_STYLES[ping.kind];
+      ctx.save();
+      ctx.translate(ox + ping.x * k, oy + ping.y * k);
+      ctx.fillStyle = 'rgba(0,0,0,0.7)';
+      drawGlyph(ctx, style.glyph, 4.2 * s);
+      ctx.fillStyle = style.colour;
+      drawGlyph(ctx, style.glyph, 3 * s);
+      ctx.restore();
+    }
+    for (const p of this.world.players) {
+      if (!p.connected || p.state === 'dead') continue;
+      const px = ox + p.x * k;
+      const py = oy + p.y * k;
+      const me = p.index === this.localPlayerIndex;
+      ctx.fillStyle = 'rgba(0,0,0,0.8)';
+      ctx.beginPath();
+      ctx.arc(px, py, (me ? 4 : 3.2) * s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = squadColour(p.index);
+      ctx.beginPath();
+      ctx.arc(px, py, (me ? 2.8 : 2.2) * s, 0, Math.PI * 2);
+      ctx.fill();
+      if (me) {
+        // A wedge the way the player faces.
+        ctx.strokeStyle = 'rgba(233,226,208,0.9)';
+        ctx.lineWidth = 1.5 * s;
+        ctx.beginPath();
+        ctx.moveTo(px, py);
+        ctx.lineTo(px + Math.cos(p.angle) * 7 * s, py + Math.sin(p.angle) * 7 * s);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+    ctx.font = `700 ${7 * s}px ${BODY}`;
+    ctx.textAlign = 'right';
+    this.text(ctx, this.world.map.name.toUpperCase(), r.x + r.w - 5 * s, r.y + r.h - 4 * s, BRASS_BRIGHT, s);
+    ctx.textAlign = 'left';
+    this.reserved.push({ x: 0, y: 0, w: r.x + r.w, h: r.y + r.h });
+  }
+
+  // ---- pings -----------------------------------------------------------------
+
+  /** Marks where they lie, with the owner's line, and at the edge when out of view. */
+  private drawPings(ctx: CanvasRenderingContext2D, camera: Camera, player: Player | null, s: number): void {
+    const { width, height } = ctx.canvas;
+    const tick = this.world.tick;
+    for (const ping of this.pings) {
+      const age = tick - ping.born;
+      const alpha = Math.max(0, Math.min(1, (PING_LIFE - age) / 60));
+      if (alpha <= 0) continue;
+      const style = PING_STYLES[ping.kind];
+      const at = camera.worldToScreen(ping.x, ping.y);
+      const onScreen = at.x > 0 && at.x < width && at.y > 0 && at.y < height;
+      const owner = this.nameOf(ping.owner) ?? (ping.owner === this.localPlayerIndex ? 'You' : `P${ping.owner + 1}`);
+      const colour = style.colour;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      if (onScreen) {
+        // A stem to the spot, a ring with the glyph above it, and the line under.
+        const pop = age < 12 ? 1 + (1 - age / 12) * 0.6 : 1;
+        ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+        ctx.lineWidth = 3 * s;
+        ctx.beginPath();
+        ctx.moveTo(at.x, at.y);
+        ctx.lineTo(at.x, at.y - 22 * s);
+        ctx.stroke();
+        ctx.strokeStyle = colour;
+        ctx.lineWidth = 1.5 * s;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(at.x, at.y, 3 * s, 0, Math.PI * 2);
+        ctx.fillStyle = colour;
+        ctx.fill();
+        ctx.translate(at.x, at.y - 32 * s);
+        ctx.scale(pop, pop);
+        ctx.beginPath();
+        ctx.arc(0, 0, 11 * s, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(8,8,10,0.85)';
+        ctx.fill();
+        ctx.strokeStyle = colour;
+        ctx.lineWidth = 1.5 * s;
+        ctx.stroke();
+        ctx.fillStyle = colour;
+        drawGlyph(ctx, style.glyph, 5.5 * s);
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.globalAlpha = alpha;
+        ctx.font = `700 ${8 * s}px ${BODY}`;
+        ctx.textAlign = 'center';
+        const metres = player ? Math.round(Math.hypot(ping.x - player.x, ping.y - player.y) / this.world.map.cell) : null;
+        const line = `${owner.toUpperCase()}: ${style.line.toUpperCase()}${metres !== null ? `  ·  ${metres}m` : ''}`;
+        this.text(ctx, line, at.x, at.y - 48 * s, BONE, s);
+        ctx.textAlign = 'left';
+      } else if (player) {
+        // Off screen: a ring at the edge in the mark's colour, the glyph inside.
+        const from = camera.worldToScreen(player.x, player.y);
+        const angle = Math.atan2(at.y - from.y, at.x - from.x);
+        const margin = 30 * s;
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+        const tx = cos > 0 ? (width - margin - from.x) / cos : cos < 0 ? (margin - from.x) / cos : Infinity;
+        const ty = sin > 0 ? (height - margin - from.y) / sin : sin < 0 ? (margin - from.y) / sin : Infinity;
+        const t = Math.max(0, Math.min(tx, ty));
+        const clear = this.keepClear(from.x + cos * t, from.y + sin * t, s, height);
+        const x = Math.max(margin, Math.min(width - margin, clear.x));
+        const y = Math.max(margin, Math.min(height - margin, clear.y));
+        ctx.translate(x, y);
+        ctx.beginPath();
+        ctx.arc(0, 0, 9 * s, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(8,8,10,0.85)';
+        ctx.fill();
+        ctx.strokeStyle = colour;
+        ctx.lineWidth = 1.5 * s;
+        ctx.stroke();
+        ctx.fillStyle = colour;
+        drawGlyph(ctx, style.glyph, 4.5 * s);
+        // A point on the ring the way it lies.
+        ctx.beginPath();
+        ctx.moveTo(cos * 13 * s, sin * 13 * s);
+        ctx.lineTo(cos * 9 * s - sin * 3 * s, sin * 9 * s + cos * 3 * s);
+        ctx.lineTo(cos * 9 * s + sin * 3 * s, sin * 9 * s - cos * 3 * s);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+  }
+
+  // ---- wheel ---------------------------------------------------------------
+
+  /** A radial menu at the centre of the screen: sectors, the pointed one lit. */
+  private drawWheel(ctx: CanvasRenderingContext2D, wheel: WheelView, s: number): void {
+    const { width, height } = ctx.canvas;
+    const cx = width / 2;
+    const cy = height / 2;
+    const outer = 122 * s;
+    const inner = 46 * s;
+    const n = wheel.options.length;
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.fillRect(0, 0, width, height);
+    ctx.translate(cx, cy);
+    if (n === 0) {
+      ctx.beginPath();
+      ctx.arc(0, 0, outer, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(12,12,15,0.8)';
+      ctx.fill();
+    }
+    for (let i = 0; i < n; i++) {
+      const option = wheel.options[i]!;
+      const lit = i === wheel.hovered && !option.disabled;
+      const step = (Math.PI * 2) / n;
+      const mid = -Math.PI / 2 + i * step;
+      const from = mid - step / 2 + 0.02;
+      const to = mid + step / 2 - 0.02;
+      ctx.beginPath();
+      ctx.arc(0, 0, outer, from, to);
+      ctx.arc(0, 0, inner, to, from, true);
+      ctx.closePath();
+      ctx.fillStyle = lit ? 'rgba(122,8,16,0.92)' : option.disabled ? 'rgba(12,12,15,0.6)' : 'rgba(12,12,15,0.86)';
+      ctx.fill();
+      ctx.strokeStyle = lit ? '#ff5a64' : 'rgba(201,167,90,0.45)';
+      ctx.lineWidth = lit ? 2 * s : 1;
+      ctx.stroke();
+      // The label along the sector's middle.
+      const r = (outer + inner) / 2;
+      const lx = Math.cos(mid) * r;
+      const ly = Math.sin(mid) * r;
+      ctx.textAlign = 'center';
+      if (wheel.kind === 'ping') {
+        const style = PING_STYLES[option.id as keyof typeof PING_STYLES];
+        if (style) {
+          ctx.save();
+          ctx.translate(lx, ly - 10 * s);
+          ctx.fillStyle = 'rgba(0,0,0,0.8)';
+          drawGlyph(ctx, style.glyph, 8.5 * s);
+          ctx.fillStyle = lit ? '#ffffff' : style.colour;
+          drawGlyph(ctx, style.glyph, 7 * s);
+          ctx.restore();
+        }
+        ctx.font = `400 ${11 * s}px ${DISPLAY}`;
+        this.text(ctx, option.label.toUpperCase(), lx, ly + 14 * s, lit ? '#ffffff' : BONE, s);
+      } else {
+        // A weapon is its icon; the ammo sits under it and the hub names it.
+        drawWeaponIcon(ctx, option.id as WeaponId, lx, ly - 5 * s, 34 * s, lit ? '#ffffff' : option.disabled ? MUTED : BONE);
+        ctx.font = `700 ${7.5 * s}px ${BODY}`;
+        this.text(ctx, option.sub.toUpperCase(), lx, ly + 20 * s, lit ? '#ffb3b8' : option.disabled ? MUTED : BONE_DIM, s);
+      }
+    }
+    // The hub: the wheel's name and what the pointer is on.
+    ctx.beginPath();
+    ctx.arc(0, 0, inner - 4 * s, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(12,12,15,0.92)';
+    ctx.fill();
+    ctx.strokeStyle = BRASS;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.textAlign = 'center';
+    ctx.font = `700 ${7.5 * s}px ${BODY}`;
+    this.text(ctx, wheel.title.toUpperCase(), 0, -6 * s, BRASS_BRIGHT, s);
+    const chosen = wheel.hovered >= 0 ? wheel.options[wheel.hovered] : null;
+    ctx.font = `400 ${10 * s}px ${DISPLAY}`;
+    this.text(ctx, chosen ? chosen.label.toUpperCase() : n === 0 ? 'NOTHING YET' : 'RELEASE TO KEEP', 0, 8 * s, chosen ? BONE : MUTED, s);
+    ctx.textAlign = 'left';
+    ctx.restore();
   }
 
   /** The score panel, tucked into the top-right corner, out of the play area. */
@@ -457,6 +918,7 @@ export class Hud {
     const y = 10 * s;
 
     this.slab(ctx, x, y, width, height, s);
+    this.reserved.push({ x, y: 0, w: ctx.canvas.width - x, h: y + height + 24 * s });
 
     if (world.mode === 'deathmatch') {
       // Frags per seat instead of a shared score, as the original's HUD did.

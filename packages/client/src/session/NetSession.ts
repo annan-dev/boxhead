@@ -25,6 +25,7 @@ import {
   type ExtractedRoom,
   type InputCommand,
   type LobbyPlayer,
+  type MarkKind,
   type MatchConfig,
   type NetEvent,
   type PlayerSnapshot,
@@ -56,6 +57,8 @@ export interface NetSessionEvents {
   onNet: (state: NetState, detail: string) => void;
   /** The server turned the join down or the link is gone for good. */
   onClosed: (reason: string) => void;
+  /** Another seat marked the arena. */
+  onMark: (playerIndex: number, kind: MarkKind, x: number, y: number) => void;
 }
 
 /** Corrections smaller than this are not worth smoothing. */
@@ -126,6 +129,11 @@ export class NetSession implements Session {
 
   connect(url: string, name: string, character: string): void {
     this.net.connect(url, { name, character });
+  }
+
+  /** Mark the arena for the squad. */
+  mark(kind: MarkKind, x: number, y: number): void {
+    this.net.send({ type: 'mark', kind, x, y });
   }
 
   get status(): SessionStatus {
@@ -224,6 +232,9 @@ export class NetSession implements Session {
         } else {
           this.pending.events = [...this.pending.events, ...message.events];
         }
+        break;
+      case 'mark':
+        this.events.onMark(message.playerIndex, message.kind, message.x, message.y);
         break;
       case 'playerJoined':
       case 'playerLeft':

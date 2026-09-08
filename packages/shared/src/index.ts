@@ -18,7 +18,8 @@ export type {
 export { Rng } from './math/Rng.js';
 export * from './math/MathUtil.js';
 export { SpatialHash } from './spatial/SpatialHash.js';
-export { GameMap, CELL_SIZE, Tile, roomFromAscii } from './map/GameMap.js';
+export { GameMap, CELL_SIZE, Tile, FAKE_WALL_HEIGHT, roomFromAscii } from './map/GameMap.js';
+export * from './sim/Grenade.js';
 export type { AsciiRoom, TileType, SpawnPoints } from './map/GameMap.js';
 export { MapNav } from './map/MapNav.js';
 export * from './map/MapCollide.js';
@@ -44,6 +45,7 @@ export {
   decodeServerMessage,
   serverUrl,
   sanitizeCommand,
+  MARK_KINDS,
 } from './net/Protocol.js';
 export type {
   ClientMessage,
@@ -54,6 +56,7 @@ export type {
   LobbyPlayer,
   StampedCommand,
   NetEvent,
+  MarkKind,
 } from './net/Protocol.js';
 export type * from './sim/types.js';
 export {

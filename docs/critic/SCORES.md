@@ -386,3 +386,24 @@ which are done in the commit that carries this entry:
   drawn once into the floor.
 - **Options › Controls**: the reset button's drop shadow reached up over the
   last row of keys; the grid now clears it, and it lays out as two columns.
+
+## Owner's direction — 2026-09-08 — controls and HUD overhaul
+
+Not a scored loop. At the owner's request the controls and HUD now follow
+modern shooters, and the grenade meets the arena by height:
+
+- **Grenade**: on its own key (G, LT on a pad), held to charge; it flies over
+  anything shorter than it is at that moment (cubes, fake walls, barrels) and
+  bounces off anything taller (wall posts, the arena's edge). A dashed arc
+  with the landing point and blast reach shows while the key is held. One
+  integrator () serves the sim and the arc.
+- **Two slots**: primary (a gun) on 1, secondary (a placeable) on 2; tap to
+  take it in hand, hold for a radial wheel and release toward a choice.
+  Q/E and the mouse wheel cycle guns only. Right click uses the secondary
+  without swapping. The grenade is never the weapon in hand.
+- **HUD**: loadout cards with drawn weapon icons bottom right, squad bars with
+  the characters' heads bottom left, a player-centred minimap top left.
+- **Pings**: F pings the aim; held, a wheel of marks (enemy, going here,
+  crate, hold here, help, devil). Relayed through the server as   messages, rate-limited to four a second; drawn in the arena, at the edge,
+  and on the minimap. The co-op harness reports .
+- Harness scenarios ,  and  capture the new HUD.

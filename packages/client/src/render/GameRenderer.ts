@@ -30,6 +30,7 @@ import {
   type SpriteArt,
   type World,
   EFFECT_TICKS,
+  WEAPONS,
 } from '@boxhead/shared';
 import { drawComposed, type DrawOptions, type Palette, type TextureSwap } from './VectorModel.js';
 import { CHARACTER_PALETTES } from './HeadArt.js';
@@ -693,6 +694,71 @@ export class GameRenderer {
   }
 
   /**
+   * While the grenade key is held: the throw's arc, its bounces and where it
+   * will lie when it goes off, with the blast's reach, the way modern
+   * shooters show a lob. The path is the simulation's own integrator run
+   * ahead, so the picture is where the grenade goes.
+   */
+  private drawGrenadeArc(ctx: CanvasRenderingContext2D): void {
+    const player = this.world.players[this.localPlayerIndex];
+    if (!player || player.state !== 'alive') return;
+    const power = this.world.grenadeCharge(player);
+    if (power <= 0) return;
+    const grenades = player.weapons.get('grenade');
+    if (!grenades?.unlocked || grenades.ammo <= 0) return;
+    const preview = this.world.grenadePreview(player, power);
+    const points = preview.points;
+    if (points.length < 2) return;
+    ctx.save();
+    ctx.lineCap = 'round';
+    // The ground track, faint, so the height reads against it.
+    ctx.setLineDash([3, 5]);
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = 'rgba(0,0,0,0.28)';
+    ctx.beginPath();
+    ctx.moveTo(points[0]!.x, points[0]!.y);
+    for (let i = 1; i < points.length; i++) ctx.lineTo(points[i]!.x, points[i]!.y);
+    ctx.stroke();
+    // The arc itself, lifted by height, dashed and bright.
+    ctx.setLineDash([4, 4]);
+    ctx.lineDashOffset = -(this.world.tick % 8);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    ctx.beginPath();
+    ctx.moveTo(points[0]!.x, points[0]!.y - points[0]!.z);
+    for (let i = 1; i < points.length; i++) ctx.lineTo(points[i]!.x, points[i]!.y - points[i]!.z);
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,236,190,0.95)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // Each bounce, a tick on the ground.
+    ctx.fillStyle = 'rgba(255,236,190,0.8)';
+    for (const b of preview.bounces) {
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, 2.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Where it goes off, and how far the blast reaches.
+    const splash = WEAPONS.grenade.splash?.radius ?? 0;
+    ctx.beginPath();
+    ctx.arc(preview.rest.x, preview.rest.y, splash, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(224,17,31,0.1)';
+    ctx.fill();
+    ctx.setLineDash([6, 6]);
+    ctx.strokeStyle = 'rgba(255,48,64,0.7)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.arc(preview.rest.x, preview.rest.y, 5, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255,236,190,0.95)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /**
    * The cell the local player's barrel, mine, charge pack or wall would land
    * in, drawn as a pale square on the floor, the way Minecraft shows the
    * block under the cursor. Red-tinted when the game would refuse it.
@@ -996,6 +1062,7 @@ export class GameRenderer {
     // One blit for the whole accumulated floor, however many decals it holds.
     ctx.drawImage(this.floor, 0, 0);
     this.drawPlacementOutline(ctx);
+    this.drawGrenadeArc(ctx);
 
     this.items.length = 0;
     this.queueArena(camera);

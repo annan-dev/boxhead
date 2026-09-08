@@ -43,6 +43,9 @@ export interface PlayerSnapshot {
   score: number;
   firingHeld: boolean;
   fireHeldTicks: number;
+  /** The grenade control, held apart from the trigger. */
+  grenadeHeld?: boolean;
+  grenadeHeldTicks?: number;
   detonateMode: boolean;
   connected: boolean;
   weapons: Array<[WeaponId, { unlocked: boolean; ammo: number }]>;

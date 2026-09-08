@@ -334,6 +334,11 @@ export const WEAPON_ORDER: WeaponId[] = [
   'railgun',
 ];
 
+/** The guns: what the primary slot holds and the cycle keys step through. */
+export const GUN_IDS: readonly WeaponId[] = ['pistol', 'uzi', 'shotgun', 'rocket', 'railgun'];
+/** The placeables: what the secondary slot holds. */
+export const PLACEABLE_IDS: readonly WeaponId[] = ['barrel', 'fakewall', 'mine', 'chargepack'];
+
 /** Which rig overlay a weapon uses; several share the same held pose. */
 export const WEAPON_RIG: Record<WeaponId, string> = {
   pistol: 'Player_Handgun',

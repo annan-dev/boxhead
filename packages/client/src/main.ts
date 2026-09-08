@@ -10,6 +10,8 @@
  * has and draws the result.
  */
 import {
+  GUN_IDS,
+  PLACEABLE_IDS,
   ROOMS,
   TICK_MS,
   WEAPONS,
@@ -18,14 +20,18 @@ import {
   serverUrl,
   type ArtPack,
   type ExtractedRoom,
+  type MarkKind,
   type Player,
   type SoundEvent,
   type WeaponId,
   type World,
   type WorldSnapshot,
 } from '@boxhead/shared';
+import { PING_LIFE, PING_STYLES, PING_WHEEL, wheelPick, type Ping } from './ui/Pings.js';
+import { Portraits } from './ui/Portraits.js';
+import type { WheelOption, WheelView } from './ui/Hud.js';
 import { Loop } from './loop/Loop.js';
-import { Input, keyName, type Bindings, type PadBindings } from './input/Input.js';
+import { Input, keyName, type Bindings, type HoldAction, type HoldPhase, type PadBindings } from './input/Input.js';
 import { Camera } from './render/Camera.js';
 import { GameRenderer } from './render/GameRenderer.js';
 import { Hud } from './ui/Hud.js';
@@ -66,7 +72,7 @@ app.innerHTML = `
               letter-spacing: .2em; text-transform: uppercase; }
     #boot code { color: #e6cf94; text-transform: none; letter-spacing: 0; font: 13px ui-monospace, Consolas, monospace; }
     /* A short reminder on entering a run, then it gets out of the way. */
-    #hint { position: fixed; left: 50%; bottom: 84px; transform: translateX(-50%);
+    #hint { position: fixed; left: 50%; bottom: 104px; transform: translateX(-50%);
             color: #e9e2d0; background: rgba(12,12,14,.92); padding: 9px 18px; border: 1px solid rgba(201,167,90,.45);
             pointer-events: none; opacity: 0; font: 700 11px "Segoe UI", system-ui, sans-serif; letter-spacing: .16em;
             text-transform: uppercase; transition: opacity .5s; white-space: nowrap; box-shadow: 0 4px 0 #000, 0 8px 20px rgba(0,0,0,.6); }
@@ -104,6 +110,7 @@ try {
 boot.remove();
 // The SWF gives three of the four characters the same head; draw the rest.
 addCharacterHeads(pack.textures);
+const portraits = new Portraits(pack);
 
 // Development-only art gallery at /#gallery, for eyeballing extracted symbols.
 if (import.meta.env.DEV && window.location.hash === '#gallery') {
@@ -117,6 +124,24 @@ const save = new SaveData();
 const input = new Input(canvas);
 input.setBindings(save.keys as Partial<Bindings>);
 input.setPadBindings(save.pad as Partial<PadBindings>);
+input.holdHandler = onHold;
+// Right click uses the secondary without a swap: the placeable comes to hand
+// for as long as the button is down, then the gun comes back.
+input.secondaryHandler = (phase) => {
+  if (!run) return false;
+  const me = run.session.world.players[run.session.localPlayerIndex];
+  if (!me) return false;
+  if (phase === 'begin') {
+    if (!secondaryId || !me.weapons.get(secondaryId)?.unlocked) {
+      showHint('no placeables yet &mdash; <b>barrels</b> come at x15', 2200);
+      return false;
+    }
+    input.selectSlot(WEAPONS[secondaryId].slot);
+    return true;
+  }
+  input.selectSlot(WEAPONS[primaryId].slot);
+  return true;
+};
 
 // The original's own menu pictures: logo, level icons, portraits. Optional;
 // the menus draw their own stand-ins when the manifest is absent.
@@ -168,6 +193,125 @@ interface Run {
 }
 
 let run: Run | null = null;
+
+/**
+ * The two slots, as modern shooters have them: the primary is a gun, the
+ * secondary a placeable, and the grenade is on its own key. The simulation
+ * only knows the weapon in hand; these remember what each slot holds.
+ */
+let primaryId: WeaponId = 'pistol';
+let secondaryId: WeaponId | null = null;
+/** Marks on the arena, this screen's and the squad's. */
+const pings: Ping[] = [];
+let nextPingId = 1;
+/** Where the aim was when a wheel opened; a ping goes there, not where the wheel was worked. */
+let wheelAim: { x: number; y: number } | null = null;
+
+/** The wheel's options for what is held: the guns, the placeables, or the marks. */
+function wheelOptions(action: HoldAction, me: Player): WheelOption[] {
+  if (action === 'ping') {
+    return PING_WHEEL.map((kind) => ({ id: kind, label: PING_STYLES[kind].label, sub: '', colour: PING_STYLES[kind].colour }));
+  }
+  const ids = action === 'primary' ? GUN_IDS : PLACEABLE_IDS;
+  return ids
+    .filter((id) => me.weapons.get(id)?.unlocked)
+    .map((id) => {
+      const def = WEAPONS[id];
+      const slot = me.weapons.get(id)!;
+      const infinite = def.infiniteAmmo;
+      return { id, label: def.name, sub: infinite ? 'unlimited' : `${slot.ammo} left`, disabled: !infinite && slot.ammo <= 0 };
+    });
+}
+
+/** The wheel as the HUD should draw it right now, or null when none is up. */
+function wheelView(): WheelView | null {
+  const open = input.wheel;
+  const me = run?.session.world.players[run.session.localPlayerIndex];
+  if (!open || !me) return null;
+  const options = wheelOptions(open.action, me);
+  const title = open.action === 'primary' ? 'Primary' : open.action === 'secondary' ? 'Secondary' : 'Ping';
+  return { kind: open.action, title, options, hovered: wheelPick(options.length, open.dx, open.dy) };
+}
+
+/** Put a weapon in a slot and in hand. */
+function equip(action: 'primary' | 'secondary', id: WeaponId): void {
+  if (action === 'primary') primaryId = id;
+  else secondaryId = id;
+  input.selectSlot(WEAPONS[id].slot);
+}
+
+/** Mark the arena at a point, and tell the squad. */
+function ping(kind: MarkKind, x: number, y: number, owner: number, fromSquad = false): void {
+  if (!run) return;
+  const world = run.session.world;
+  // One mark per owner at a time keeps the arena legible.
+  for (let i = pings.length - 1; i >= 0; i--) if (pings[i]!.owner === owner) pings.splice(i, 1);
+  pings.push({ id: nextPingId++, kind, x, y, owner, born: world.tick });
+  audio.play('UI.Click', 0, 0, kind === 'help' || kind === 'danger' ? 1.15 : 0.95, { x: 0, y: 0, halfWidth: 1 });
+  if (!fromSquad && run.session instanceof NetSession) run.session.mark(kind, x, y);
+}
+
+/** A hold key: tapped, it acts at once; held, its wheel opens, and the release picks. */
+function onHold(action: HoldAction, phase: HoldPhase, dx: number, dy: number): void {
+  if (!run || menus.isOpen) return;
+  const { camera } = run;
+  const me = run.session.world.players[run.session.localPlayerIndex];
+  if (!me) return;
+  if (phase === 'open') {
+    wheelAim = input.aimWorld(camera, me.x, me.y);
+    audio.play('UI.Hover', 0, 0, 1, { x: 0, y: 0, halfWidth: 1 });
+    return;
+  }
+  if (phase === 'tap') {
+    if (action === 'primary') {
+      input.selectSlot(WEAPONS[primaryId].slot);
+    } else if (action === 'secondary') {
+      // The pad's swap goes the other way too: back to the gun when a placeable is in hand.
+      if (me.current === secondaryId) input.selectSlot(WEAPONS[primaryId].slot);
+      else if (secondaryId) input.selectSlot(WEAPONS[secondaryId].slot);
+      else showHint('no placeables yet &mdash; <b>barrels</b> come at x15', 2200);
+    } else {
+      const aim = input.aimWorld(camera, me.x, me.y);
+      ping('look', aim.x, aim.y, me.index);
+    }
+    return;
+  }
+  // Release: whatever the pointer pointed at.
+  const options = wheelOptions(action, me);
+  const picked = wheelPick(options.length, dx, dy);
+  const option = picked >= 0 ? options[picked] : undefined;
+  if (!option || option.disabled) return;
+  if (action === 'ping') {
+    const at = wheelAim ?? input.aimWorld(camera, me.x, me.y);
+    ping(option.id as MarkKind, at.x, at.y, me.index);
+  } else {
+    equip(action, option.id as WeaponId);
+  }
+  audio.play('UI.Click', 0, 0, 1, { x: 0, y: 0, halfWidth: 1 });
+}
+
+/** Keep the slots in step with the weapon the simulation says is in hand, and the HUD with both. */
+function syncLoadout(): void {
+  if (!run) return;
+  const me = run.session.world.players[run.session.localPlayerIndex];
+  if (!me) return;
+  if (GUN_IDS.includes(me.current)) primaryId = me.current;
+  else if (PLACEABLE_IDS.includes(me.current)) secondaryId = me.current;
+  if (secondaryId === null || !me.weapons.get(secondaryId)?.unlocked) {
+    secondaryId = PLACEABLE_IDS.find((id) => me.weapons.get(id)?.unlocked) ?? null;
+  }
+  run.hud.loadout = { primary: primaryId, secondary: secondaryId };
+  const tick = run.session.world.tick;
+  for (let i = pings.length - 1; i >= 0; i--) {
+    if (tick - pings[i]!.born > PING_LIFE || tick < pings[i]!.born) pings.splice(i, 1);
+  }
+}
+
+/** The key caps the HUD shows, from the bindings. */
+function hudKeys(): { primary: string; secondary: string; grenade: string; ping: string } {
+  const cap = (action: 'primary' | 'secondary' | 'grenade' | 'ping'): string => keyName(input.keysFor(action)[0] ?? '').toUpperCase();
+  return { primary: cap('primary'), secondary: cap('secondary'), grenade: cap('grenade'), ping: cap('ping') };
+}
 let paused = false;
 let showStats = false;
 let stepAverage = 0;
@@ -230,6 +374,7 @@ const menus = new Menus(app, pack, rooms, save, screens, {
   onKeys: () => {
     input.setBindings(save.keys as Partial<Bindings>);
     input.setPadBindings(save.pad as Partial<PadBindings>);
+    if (run) run.hud.keys = hudKeys();
   },
   onPadSeen: () => {
     input.padSeen = true;
@@ -295,27 +440,27 @@ const TIPS: Tip[] = [
   },
   {
     id: 'barrel',
-    text: '<b>barrels</b> (4) drop one cell ahead &mdash; zombies cannot pass, one shot sets it off',
+    text: '<b>barrels</b> &mdash; tap <b>2</b> for your placeable, click to drop one a cell ahead; zombies cannot pass, one shot sets it off',
     when: (_, me) => unlocked(me, 'barrel'),
   },
   {
     id: 'grenade',
-    text: '<b>grenade</b> (5) &mdash; hold to throw farther, release to lob',
+    text: '<b>grenade</b> &mdash; hold <b>G</b> to throw farther, release to lob; the arc shows where it lands',
     when: (_, me) => unlocked(me, 'grenade'),
   },
   {
     id: 'wall',
-    text: '<b>fake walls</b> (6) hold zombies off for good; only devils and your own fire bring them down',
+    text: '<b>fake walls</b> &mdash; hold <b>2</b> to pick them; they hold zombies off for good, and only devils and your own fire bring them down',
     when: (_, me) => unlocked(me, 'fakewall'),
   },
   {
     id: 'mine',
-    text: '<b>mines</b> (7) arm once you step off; whatever treads on one sets it off',
+    text: '<b>mines</b> &mdash; hold <b>2</b> to pick them; they arm once you step off, and whatever treads on one sets it off',
     when: (_, me) => unlocked(me, 'mine'),
   },
   {
     id: 'charge',
-    text: '<b>charge packs</b> (9) &mdash; press to place, press again to blow them all',
+    text: '<b>charge packs</b> &mdash; hold <b>2</b> to pick them; click to place, click again to blow them all',
     when: (_, me) => unlocked(me, 'chargepack'),
   },
   {
@@ -383,6 +528,15 @@ function bind(session: Session, characterId: string): void {
     camera,
     characterId,
   };
+  run.hud.keys = hudKeys();
+  run.hud.portraitOf = (id, size) => portraits.headOf(id, size);
+  primaryId = GUN_IDS.includes(world.players[Math.max(0, session.localPlayerIndex)]?.current ?? 'pistol')
+    ? (world.players[Math.max(0, session.localPlayerIndex)]?.current ?? 'pistol')
+    : 'pistol';
+  secondaryId = null;
+  pings.length = 0;
+  run.hud.pings = pings;
+  syncLoadout();
   applyFeelSettings();
   loop.setStepMs(session.stepMs);
   slowMotion = false;
@@ -425,10 +579,11 @@ function startRun(roomId: string, characterId: string): void {
 
 function controlsHint(): string {
   if (input.padSeen) {
-    return '<b>stick</b> move &nbsp; <b>right stick</b> aim &nbsp; <b>trigger</b> fire &nbsp; <b>start</b> pause';
+    return '<b>stick</b> move &nbsp; <b>right stick</b> aim &nbsp; <b>trigger</b> fire &nbsp; <b>LT</b> grenade &nbsp; <b>Y</b> swap &nbsp; <b>X</b> ping';
   }
   const move = (['up', 'left', 'down', 'right'] as const).map((a) => keyName(input.keysFor(a)[0] ?? '')).join('');
-  return `<b>${move}</b> move &nbsp; <b>mouse</b> aim &nbsp; <b>click</b> fire &nbsp; <b>Esc</b> menu`;
+  const k = hudKeys();
+  return `<b>${move}</b> move &nbsp; <b>click</b> fire &nbsp; <b>right click</b> place &nbsp; <b>${k.grenade}</b> grenade &nbsp; <b>${k.primary}</b>/<b>${k.secondary}</b> weapons, hold to choose &nbsp; <b>${k.ping}</b> ping`;
 }
 
 /**
@@ -503,6 +658,7 @@ function connect(address: string, name: string, characterId: string): void {
   netAddress = address;
   netStatus = 'connecting';
   const session = new NetSession(rooms, {
+    onMark: (playerIndex, kind, x, y) => ping(kind, x, y, playerIndex, true),
     onLobby: (state) => {
       lastLobby = state;
       const view: LobbyView = { ...state, address: netAddress, status: netStatus };
@@ -756,6 +912,7 @@ const loop = new Loop(
       }
 
       session.step(input, camera, presenter);
+      syncLoadout();
       if (!networked && run) {
         const { world } = run.session;
         const kills = world.kills - lastKills;
@@ -821,6 +978,8 @@ const loop = new Loop(
       renderer.draw(ctx, camera, blend);
       const aiming = !frozen && !input.padOwnsAim && !run.session.world.gameOver;
       canvas.classList.toggle('aiming', aiming);
+      input.poll();
+      hud.wheel = frozen ? null : wheelView();
       hud.draw(ctx, camera, aiming ? { x: input.pointerX, y: input.pointerY } : null);
 
       if (paused && !menus.isOpen) drawQuickPause();
@@ -948,6 +1107,8 @@ if (import.meta.env.DEV) {
     save,
     loop,
     rooms,
+    pings,
+    ping,
     music,
     gameMusic,
     audio,
@@ -1090,6 +1251,7 @@ if (import.meta.env.DEV) {
       }
       camera.interpolate(0);
       renderer.draw(ctx, camera, 0);
+      hud.wheel = wheelView();
       hud.draw(ctx, camera);
       return debugStats();
     },

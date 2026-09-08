@@ -1,6 +1,6 @@
 /**
- * HUD layout rules that must hold at every window size: a full arsenal fits
- * the weapon strip.
+ * HUD layout rules that must hold at every window size: the corner panels
+ * stay inside the window and never overlap one another.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -9,11 +9,22 @@ import { Hud } from '../src/ui/Hud.js';
 const scale = (height: number): number => Math.max(1, Math.min(2, height / 620));
 
 for (const [width, height] of [[1280, 720], [1920, 1080], [800, 450], [2560, 1440]] as const) {
-  test(`a full strip at ${width}x${height} fits the window`, () => {
+  test(`the panels at ${width}x${height} fit the window and keep apart`, () => {
     const s = scale(height);
-    const strip = Hud.layoutStrip(width, s, 10);
-    assert.ok(strip.left >= 0 && strip.left + strip.width <= width, 'the strip runs off screen');
-    assert.ok(strip.slotWidth >= 30 * s, 'slots collapsed below the floor');
+    const lay = Hud.layout(width, height, s);
+    const rects = Object.entries(lay);
+    for (const [name, r] of rects) {
+      assert.ok(r.x >= 0 && r.y >= 0 && r.x + r.w <= width && r.y + r.h <= height, `${name} runs off screen`);
+    }
+    for (const [a, ra] of rects) {
+      for (const [b, rb] of rects) {
+        if (a >= b) continue;
+        const apart = ra.x + ra.w <= rb.x || rb.x + rb.w <= ra.x || ra.y + ra.h <= rb.y || rb.y + rb.h <= ra.y;
+        assert.ok(apart, `${a} overlaps ${b}`);
+      }
+    }
+    // The grenade chip and the two cards leave the squad room to its left.
+    assert.ok(lay.grenade.x > lay.squad.x + lay.squad.w + 8 * s, 'the loadout crowds the squad');
   });
 }
 
