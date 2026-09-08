@@ -118,7 +118,7 @@ export class Hud {
       if (!local || local.state !== 'alive') continue;
       if (!worst || local.life / local.maxLife < worst.life / worst.maxLife) worst = local;
     }
-    if (worst) this.drawLowHealth(ctx, worst);
+    if (worst) this.drawLowHealth(ctx, worst, this.localSeats >= 2 ? camera.worldToScreen(worst.x, worst.y).x : null);
 
     this.stripExtents.length = 0;
     this.drawPopups(ctx, camera, scale);
@@ -196,7 +196,7 @@ export class Hud {
    * hurt vignette answers a hit; this one keeps nagging until the player
    * has healed, which is the thing they would otherwise not notice.
    */
-  private drawLowHealth(ctx: CanvasRenderingContext2D, player: Player): void {
+  private drawLowHealth(ctx: CanvasRenderingContext2D, player: Player, seatX: number | null = null): void {
     const ratio = player.life / player.maxLife;
     if (ratio > 0.3) return;
     const urgency = 1 - ratio / 0.3;
@@ -207,9 +207,12 @@ export class Hud {
     const strength = (0.18 + urgency * 0.22) * beat;
     if (strength <= 0.01) return;
     const { width, height } = ctx.canvas;
+    // On a shared screen the beat centres on the hurt seat's side, so the
+    // other player knows it is not theirs.
+    const cx = seatX === null ? width / 2 : Math.max(width * 0.25, Math.min(width * 0.75, seatX));
     const gradient = ctx.createRadialGradient(
-      width / 2, height / 2, Math.min(width, height) * 0.3,
-      width / 2, height / 2, Math.max(width, height) * 0.7,
+      cx, height / 2, Math.min(width, height) * 0.3,
+      cx, height / 2, Math.max(width, height) * 0.7,
     );
     gradient.addColorStop(0, 'rgba(150,0,0,0)');
     gradient.addColorStop(1, `rgba(150,0,0,${strength})`);
@@ -219,8 +222,11 @@ export class Hud {
       // A frame that thickens with the beat: a shape, for eyes the red alone does not reach.
       const border = (4 + beat * 8) * Math.max(1, height / 620);
       ctx.fillStyle = `rgba(255,255,255,${0.35 + beat * 0.45})`;
-      ctx.fillRect(0, 0, width, border);
-      ctx.fillRect(0, height - border, width, border);
+      // With two seats the frame covers the hurt seat's half only.
+      const left = seatX === null ? 0 : seatX < width / 2 ? 0 : width / 2;
+      const span = seatX === null ? width : width / 2;
+      ctx.fillRect(left, 0, span, border);
+      ctx.fillRect(left, height - border, span, border);
       ctx.fillRect(0, 0, border, height);
       ctx.fillRect(width - border, 0, border, height);
     }

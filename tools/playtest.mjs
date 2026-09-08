@@ -329,8 +329,7 @@ async function runCoop(host) {
     }
     const bothInWave = hostStats.screen === 'none' && guestStats.screen === 'none' && hostStats.tick > 0 && guestStats.tick > 0;
     const report = {
-      hostScreen,
-      guestScreen,
+      joinedAs: { host: hostScreen, guest: guestScreen },
       bothInWave,
       reconnect,
       host: { ...hostStats, net: hostNet },

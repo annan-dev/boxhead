@@ -482,6 +482,27 @@ export class SaveData {
     return this.state.history ?? [];
   }
 
+  /**
+   * What the player's own runs say about a room at a preset: how many, the
+   * best level, and the median time. Nothing when they have not played it.
+   */
+  recordLine(roomId: string, difficulty: string): { runs: number; bestLevel: number; medianSeconds: number } | null {
+    const runs = this.history.filter((entry) => entry.roomId === roomId && entry.difficulty === difficulty);
+    const best = this.bestAt(roomId, difficulty);
+    if (runs.length === 0 && best.score <= 0) return null;
+    const times = runs.map((entry) => entry.seconds).sort((a, b) => a - b);
+    return {
+      runs: runs.length,
+      bestLevel: Math.max(best.level, ...runs.map((entry) => entry.level)),
+      medianSeconds: times.length > 0 ? times[Math.floor(times.length / 2)]! : 0,
+    };
+  }
+
+  /** Where a preset opens, for a room the player has not tried at it. */
+  static presetLine(difficulty: { name: string; startLevel: number; startMultiplier: number }): string {
+    return `${difficulty.name} opens at level ${difficulty.startLevel} with x${difficulty.startMultiplier}`;
+  }
+
   isRoomUnlocked(index: number): boolean {
     return index < this.state.unlockedRooms;
   }

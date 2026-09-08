@@ -82,3 +82,37 @@ test('a custom start level marks the run as practice', () => {
   save.setStartLevel(0);
   assert.equal(save.countsForHighScores, true);
 });
+
+test('the second seat and the pad rebind without stepping on each other, and reset together', () => {
+  const save = new SaveData();
+  const seatB = { up: ['ArrowUp'], fire: ['Enter', 'ShiftRight'], pause: ['Backspace'] };
+  save.setKeyB('pause', 'Enter', seatB);
+  assert.deepEqual(save.keysB['pause'], ['Enter']);
+  assert.deepEqual(save.keysB['fire'], ['ShiftRight'], 'the key was taken from fire');
+  save.setKeyB('fire', 'KeyL', seatB, true);
+  assert.deepEqual(save.keysB['fire'], ['ShiftRight', 'KeyL'], 'shift-click adds beside the first');
+
+  const pad = { fire: [7, 0], next: [5], prev: [4], menu: [1, 3], pause: [9] };
+  save.setPadButton('next', 0, pad);
+  assert.deepEqual(save.pad['next'], [0]);
+  assert.deepEqual(save.pad['fire'], [7], 'A was taken from fire');
+
+  save.resetKeys();
+  assert.deepEqual(save.keysB, {});
+  assert.deepEqual(save.pad, {});
+  assert.deepEqual(save.keys, {});
+});
+
+test("a room's record line comes from the player's own runs", () => {
+  const save = new SaveData();
+  assert.equal(save.recordLine('r1', 'expert'), null);
+  save.recordRun('r1', 0, { score: 100, level: 21, kills: 5, startLevel: 20, difficulty: 'expert', seconds: 20 }, true, 18);
+  save.recordRun('r1', 0, { score: 300, level: 22, kills: 9, startLevel: 20, difficulty: 'expert', seconds: 60 }, true, 18);
+  save.recordRun('r1', 0, { score: 50, level: 20, kills: 1, startLevel: 20, difficulty: 'expert', seconds: 9 }, true, 18);
+  const line = save.recordLine('r1', 'expert');
+  assert.ok(line);
+  assert.equal(line.runs, 3);
+  assert.equal(line.bestLevel, 22);
+  assert.equal(line.medianSeconds, 20);
+  assert.equal(save.recordLine('r1', 'beginner'), null, 'another preset is another record');
+});

@@ -21,7 +21,7 @@ import { CHARACTERS, DEATHMATCH_KILL_TARGETS, DIFFICULTIES, GAME_SPEEDS } from '
 import { drawComposed, type TextureSwap } from '../render/VectorModel.js';
 import { ClipIndex, composePose, type Layer } from '../render/Rig.js';
 import { drawSprite } from '../render/SpriteRenderer.js';
-import type { SaveData } from '../state/SaveData.js';
+import { SaveData } from '../state/SaveData.js';
 import { UNLOCK_CLEARS, UNLOCK_LEVEL } from '../state/SaveData.js';
 import { assetUrl } from '../assets/AssetSource.js';
 import { CHARACTER_PALETTES } from '../render/HeadArt.js';
@@ -409,7 +409,7 @@ const STYLE = `
   .keygrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0 30px; max-width: 700px; }
   .keygrid .row { margin-bottom: 10px; }
   .keygrid label { min-width: 140px; }
-  button.key { font: 700 12px "Segoe UI", system-ui, sans-serif; letter-spacing: .1em; text-transform: uppercase;
+  button.key { white-space: nowrap; font: 700 12px "Segoe UI", system-ui, sans-serif; letter-spacing: .1em; text-transform: uppercase;
                padding: 7px 14px; min-width: 96px; border: 1px solid var(--brass-dim); color: var(--bone);
                background: linear-gradient(#1d1d21, #141417); cursor: pointer; box-shadow: 0 3px 0 #000; }
   button.key:hover, button.key:focus { outline: none; border-color: var(--brass); box-shadow: 0 3px 0 #000, 0 0 14px var(--brass-glow); }
@@ -835,6 +835,20 @@ export class Menus {
     });
   }
 
+  /** "level 15, between Intermediate and Expert", or "off". */
+  private startLevelLabel(): string {
+    const level = this.save.startLevel;
+    if (!level) return 'off';
+    const presets = [...DIFFICULTIES].sort((a, b) => a.startLevel - b.startLevel);
+    const exact = presets.find((d) => d.startLevel === level);
+    if (exact) return `level ${level}, where ${exact.name} opens`;
+    const below = [...presets].reverse().find((d) => d.startLevel < level);
+    const above = presets.find((d) => d.startLevel > level);
+    if (below && above) return `level ${level}, between ${below.name} and ${above.name}`;
+    if (above) return `level ${level}, before ${above.name}`;
+    return `level ${level}, past ${below?.name ?? 'Nightmare'}`;
+  }
+
   /** The first bound key of each action, as caps, for the how-to-play. */
   private keyLabel(actions: BindableAction[]): string {
     return actions
@@ -858,11 +872,14 @@ export class Menus {
         const record = this.save.recordFor(room.id);
         const unlocked = this.save.isRoomUnlocked(index);
         const at = this.save.bestAt(room.id, this.save.difficulty);
+        const line = this.save.recordLine(room.id, this.save.difficulty);
+        const preset = DIFFICULTIES.find((d) => d.id === this.save.difficulty) ?? DIFFICULTIES[0]!;
         const best = at.score > 0
-          ? `best ${at.score.toLocaleString()} &middot; level ${at.level}`
+          ? `best ${at.score.toLocaleString()} &middot; level ${at.level}` +
+            (line && line.runs > 0 ? ` &middot; ${line.runs} ${line.runs === 1 ? 'run' : 'runs'}, usually ${formatSeconds(line.medianSeconds)}` : '')
           : record.score > 0
-            ? `no ${escapeHtml(this.difficultyName())} run yet &middot; best ${record.score.toLocaleString()} on ${escapeHtml(this.difficultyName(record.difficulty ?? 'beginner'))}`
-            : 'not played';
+            ? `no ${escapeHtml(this.difficultyName())} run yet &middot; ${escapeHtml(SaveData.presetLine(preset))}`
+            : `not played &middot; ${escapeHtml(SaveData.presetLine(preset))}`;
         const icon = this.screens?.levelIcons[room.id];
         return `
           <button class="card ${unlocked ? '' : 'locked'}" data-room="${room.id}"
@@ -891,7 +908,7 @@ export class Menus {
                <div><label style="cursor:pointer"><input type="checkbox" id="sharedDm" ${this.save.sharedMode === 'deathmatch' ? 'checked' : ''} style="accent-color:var(--red);vertical-align:-2px;margin-right:6px">deathmatch &mdash; head to head, first to ${DEATHMATCH_KILL_TARGETS[1]}</label></div>`
             : ''
         }
-        ${this.save.practiceReason ? `<div><span class="badge strong">&#9888; practice run &mdash; ${this.save.practiceReason}</span></div>` : ''}
+        ${this.save.practiceReason ? `<div><span class="badge strong">&#9888; practice run &mdash; ${this.save.practiceReason}</span>${this.save.startLevel ? ' <button class="key" id="practiceOff" type="button">practice off</button>' : ''}</div>` : ''}
       </div>
       <div class="panel"><div class="paper"><div class="grid">${cards}</div></div></div>
     `);
@@ -904,6 +921,10 @@ export class Menus {
         const other = CHARACTERS.find((c) => c.id !== this.selectedCharacter);
         if (other) this.save.setSecondCharacter(other.id);
       }
+      this.renderRooms();
+    });
+    inner.querySelector<HTMLButtonElement>('#practiceOff')?.addEventListener('click', () => {
+      this.save.setStartLevel(0);
       this.renderRooms();
     });
     inner.querySelector<HTMLButtonElement>('#secondChar')?.addEventListener('click', () => {
@@ -1169,11 +1190,8 @@ export class Menus {
         <label for="startLevel">Practice start</label>
         <input type="range" id="startLevel" min="1" max="60" value="${this.save.startLevel || 1}" list="presetTicks">
         <datalist id="presetTicks">${DIFFICULTIES.map((d) => `<option value="${d.startLevel}" label="${d.name}"></option>`).join('')}</datalist>
-        <span id="startLevelVal">${this.save.startLevel ? `level ${this.save.startLevel}` : 'off'}</span>
+        <span id="startLevelVal">${this.startLevelLabel()}</span>
         <span id="startLevelBadge" ${this.save.startLevel ? '' : 'hidden'}>${NO_SCORE_BADGE}</span>
-      </div>
-      <div class="ticks" style="margin:-10px 0 4px 146px;max-width:260px;position:relative;height:14px">
-        ${DIFFICULTIES.map((d) => `<span style="position:absolute;left:${((d.startLevel - 1) / 59) * 100}%;transform:translateX(-50%)">${d.name}</span>`).join('')}
       </div>
       <p class="hint" style="margin:-6px 0 0 146px;max-width:560px">Open the run on any level with the awards a preset
         would have banked there, to practise a wave the presets skip. Such a run counts for nothing.</p>
@@ -1398,7 +1416,7 @@ export class Menus {
     startLevel.addEventListener('input', () => {
       const level = Number(startLevel.value);
       this.save.setStartLevel(level <= 1 ? 0 : level);
-      startLevelValue.textContent = this.save.startLevel ? `level ${this.save.startLevel}` : 'off';
+      startLevelValue.textContent = this.startLevelLabel();
       startLevelBadge.hidden = this.save.startLevel === 0;
     });
 
@@ -1470,8 +1488,20 @@ export class Menus {
           this.renderOptions();
         };
         window.addEventListener('keydown', onKey, true);
+        // No pad, or no press within ten seconds: say so and give up.
+        const started = Date.now();
         const timer = window.setInterval(() => {
           const pad = firstGamepad();
+          if (Date.now() - started > 10000) {
+            stop();
+            this.renderOptions();
+            const note = inner.querySelector<HTMLDivElement>('#keyNote');
+            if (note) {
+              note.textContent = pad ? 'no button was pressed' : 'no gamepad found: press a button on it first';
+              note.hidden = false;
+            }
+            return;
+          }
           if (!pad) return;
           for (let i = 0; i < pad.buttons.length; i++) {
             const pressed = pad.buttons[i]!.pressed || pad.buttons[i]!.value > 0.5;
@@ -1727,8 +1757,13 @@ export class Menus {
       return;
     }
     const delta = result.score - result.bestBefore;
+    const record = result.practice ? null : this.save.recordLine(result.roomId, result.difficulty);
+    // A quick death on a preset never cleared here: the wave is the lesson, so practising it leads.
+    const quickDeath = !result.practice && result.seconds < 30 && result.levelsCleared < UNLOCK_CLEARS && result.level >= 2;
     const verdict = result.practice
-      ? `<span class="badge strong">&#9888; practice run (${result.practice}) &mdash; not recorded</span>`
+      ? `<span class="badge strong">&#9888; practice run (${result.practice}) &mdash; not recorded</span>${
+          this.save.startLevel ? ' <button class="key" id="practiceOff" type="button">practice off</button>' : ''
+        }`
       : result.bestBefore <= 0
         ? 'first run here on this difficulty'
         : result.isBest
@@ -1741,6 +1776,11 @@ export class Menus {
         <div class="sub" style="margin-bottom:0">final score</div>
         <div class="big">${result.score.toLocaleString()}</div>
         <div class="best ${result.isBest ? 'new' : ''}">${verdict}</div>
+        ${
+          record
+            ? `<div class="stats"><div>your runs here on ${escapeHtml(this.difficultyName(result.difficulty))}: <b>${record.runs}</b>, best level <b>${record.bestLevel}</b>, usually <b>${formatSeconds(record.medianSeconds)}</b></div></div>`
+            : ''
+        }
         <div class="stats">
           <div>level reached <b>${result.level}</b></div>
           <div>kills <b>${result.kills}</b></div>
@@ -1762,14 +1802,23 @@ export class Menus {
                 : `<div>clear <b>${UNLOCK_CLEARS - result.levelsCleared}</b> more ${UNLOCK_CLEARS - result.levelsCleared === 1 ? 'wave' : 'waves'} here to unlock the next room</div>`
           }
         </div>
-        <button class="btn primary" id="again">Play again</button>
-        ${result.level >= 2 && !result.practice ? `<button class="btn secondary" id="practise">Practise level ${result.level} here</button>` : ''}
+        ${
+          quickDeath
+            ? `<button class="btn primary" id="practise">Practise level ${result.level} here</button>
+               <button class="btn secondary" id="again">Play again</button>`
+            : `<button class="btn primary" id="again">Play again</button>
+               ${result.level >= 2 && !result.practice ? `<button class="btn secondary" id="practise">Practise level ${result.level} here</button>` : ''}`
+        }
         <button class="btn secondary" data-go="rooms">Choose another room</button>
         <button class="btn secondary" data-go="title">Main menu</button>
       </div>
     `);
     inner.querySelector<HTMLButtonElement>('#again')!.addEventListener('click', () => {
       this.callbacks.onStart(result.roomId, this.selectedCharacter);
+    });
+    inner.querySelector<HTMLButtonElement>('#practiceOff')?.addEventListener('click', () => {
+      this.save.setStartLevel(0);
+      this.renderDebrief(result);
     });
     inner.querySelector<HTMLButtonElement>('#practise')?.addEventListener('click', () => {
       // The wave that ended the run, again, with what a preset would bank there;
