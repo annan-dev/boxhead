@@ -89,6 +89,8 @@ export interface MenuCallbacks {
   /** Abandon the current run and return to the title. */
   onQuit: () => void;
   onVolume: (value: number) => void;
+  /** Menu music level. */
+  onMusic: (value: number) => void;
   onMuted: (value: boolean) => void;
   /** Fired whenever a screen opens or the menus close. */
   onScreen: (screen: Screen) => void;
@@ -826,6 +828,11 @@ export class Menus {
         <span id="volVal">${Math.round(this.save.volume * 100)}%</span>
       </div>
       <div class="row">
+        <label for="music">Music</label>
+        <input type="range" id="music" min="0" max="100" value="${Math.round(this.save.music * 100)}">
+        <span id="musicVal">${Math.round(this.save.music * 100)}%</span>
+      </div>
+      <div class="row">
         <label for="mute">Mute</label>
         <input type="checkbox" id="mute" ${this.save.muted ? 'checked' : ''}>
       </div>
@@ -847,6 +854,15 @@ export class Menus {
       volumeValue.textContent = `${volume.value}%`;
       this.save.setVolume(value);
       this.callbacks.onVolume(value);
+    });
+
+    const music = inner.querySelector<HTMLInputElement>('#music')!;
+    const musicValue = inner.querySelector<HTMLSpanElement>('#musicVal')!;
+    music.addEventListener('input', () => {
+      const value = Number(music.value) / 100;
+      musicValue.textContent = `${music.value}%`;
+      this.save.setMusic(value);
+      this.callbacks.onMusic(value);
     });
 
     const mute = inner.querySelector<HTMLInputElement>('#mute')!;

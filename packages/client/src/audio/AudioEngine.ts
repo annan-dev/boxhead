@@ -102,6 +102,12 @@ export class AudioEngine {
     return this.ready;
   }
 
+  /** The graph a music generator should feed, so mute and volume cover it too. */
+  bus(): { context: AudioContext; destination: AudioNode } | null {
+    if (!this.context || !this.master) return null;
+    return { context: this.context, destination: this.master };
+  }
+
   /** Play one positioned sound. Silently no-ops if the sample is unavailable. */
   play(name: string, x: number, y: number, rate: number, listener: Listener): void {
     const context = this.context;

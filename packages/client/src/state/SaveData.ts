@@ -30,6 +30,8 @@ export interface SaveState {
   /** The original's Devils On/Off. */
   devils: boolean;
   volume: number;
+  /** Menu music level, 0-1, on top of the master volume. */
+  music: number;
   muted: boolean;
   /** Best result per arena, keyed by room id. */
   rooms: Record<string, RoomRecord>;
@@ -50,6 +52,7 @@ function defaults(): SaveState {
     gameSpeed: 'normal',
     devils: true,
     volume: 0.7,
+    music: 0.6,
     muted: false,
     rooms: {},
     unlockedRooms: 1,
@@ -126,6 +129,15 @@ export class SaveData {
 
   get volume(): number {
     return this.state.volume;
+  }
+
+  get music(): number {
+    return this.state.music ?? 0.6;
+  }
+
+  setMusic(value: number): void {
+    this.state.music = Math.max(0, Math.min(1, value));
+    this.persist();
   }
 
   get muted(): boolean {
@@ -248,8 +260,8 @@ export class SaveData {
 
   /** Clear every stored score and unlock, for the options screen. */
   reset(): void {
-    const { characterId, volume, muted, difficulty, gameSpeed, devils } = this.state;
-    this.state = { ...defaults(), characterId, volume, muted, difficulty, gameSpeed, devils };
+    const { characterId, volume, music, muted, difficulty, gameSpeed, devils } = this.state;
+    this.state = { ...defaults(), characterId, volume, music, muted, difficulty, gameSpeed, devils };
     this.persist();
   }
 }

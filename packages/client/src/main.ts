@@ -26,6 +26,7 @@ import { Hud } from './ui/Hud.js';
 import { Menus, type LobbyView, type RunResult, type ScreenArt } from './ui/Menus.js';
 import { SaveData } from './state/SaveData.js';
 import { AudioEngine, SOUND_NAMES } from './audio/AudioEngine.js';
+import { MenuMusic } from './audio/MenuMusic.js';
 import type { Presenter, Session } from './session/Session.js';
 import { LocalSession } from './session/LocalSession.js';
 import { NetSession } from './session/NetSession.js';
@@ -114,6 +115,9 @@ const audio = new AudioEngine();
 void audio.init(SOUND_NAMES);
 audio.setVolume(save.volume);
 if (save.muted) audio.toggleMute();
+// The menus' own track; it follows the master volume and mute through the engine.
+const music = new MenuMusic(() => audio.bus());
+music.setVolume(save.music);
 // Browsers only unlock audio on a gesture they count as activation, which
 // an Escape press or a touch-start is not, so keep trying until it takes.
 const unlock = (): void => {
@@ -181,12 +185,16 @@ const menus = new Menus(app, pack, rooms, save, screens, {
     menus.show('title');
   },
   onVolume: (value) => audio.setVolume(value),
+  onMusic: (value) => music.setVolume(value),
   onMuted: (value) => {
     if (audio.muted !== value) audio.toggleMute();
   },
   // The menus own the keyboard while they are up; play keys must not leak
   // through, and nothing pressed there may fire once play resumes.
-  onScreen: (screen) => input.setEnabled(screen === 'none'),
+  onScreen: (screen) => {
+    input.setEnabled(screen === 'none');
+    music.setScene(screen === 'none' ? 'off' : screen === 'pause' ? 'ducked' : 'full');
+  },
   onConnect: (address, name, characterId) => connect(address, name, characterId),
   onLeaveMatch: () => {
     endRun();
@@ -517,6 +525,7 @@ if (import.meta.env.DEV) {
     save,
     loop,
     rooms,
+    music,
     startRun,
     connect,
     /**
