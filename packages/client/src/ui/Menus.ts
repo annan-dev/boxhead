@@ -25,6 +25,7 @@ import type { SaveData } from '../state/SaveData.js';
 import { UNLOCK_LEVEL } from '../state/SaveData.js';
 import { assetUrl } from '../assets/AssetSource.js';
 import { CHARACTER_PALETTES } from '../render/HeadArt.js';
+import { TitleArt } from './TitleArt.js';
 
 export type Screen =
   | 'title'
@@ -103,7 +104,7 @@ export interface MenuCallbacks {
   onLobbyStart: () => void;
 }
 
-const DISPLAY = '"Anton", Impact, "Haettenschweiler", "Arial Narrow Bold", "Arial Black", sans-serif';
+const DISPLAY = '"Cinzel", "Trajan Pro", "Palatino Linotype", Georgia, "Times New Roman", serif';
 const BODY = '"Segoe UI", system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif';
 
 /** Concrete grain: a tiny SVG turbulence tile, inlined so it works from a file on disk. */
@@ -138,7 +139,7 @@ const STYLE = `
 
   /* Backdrop: vignette over concrete grain, a smoulder along the floor, and the
      original's floor band recast as a dark, scorched strip. */
-  .menu .bg { position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  .menu .bg { position: fixed; inset: 0; pointer-events: none; z-index: 1;
               background:
                 radial-gradient(ellipse 90% 70% at 50% 110%, rgba(224,17,31,.30), transparent 60%),
                 radial-gradient(ellipse 120% 90% at 50% 40%, rgba(255,255,255,.035), transparent 65%),
@@ -154,8 +155,31 @@ const STYLE = `
               background: linear-gradient(#8b1a12, #5a0d0a); border-top: 0; border-bottom: 3px solid #2a0605;
               box-shadow: 0 6px 24px rgba(0,0,0,.6); }
 
+  /* The title's key art fills the screen under everything; the backdrop's
+     fill steps aside and only its vignette and grain remain. */
+  .hero-art { position: fixed; inset: 0; z-index: 0; width: 100vw; height: 100vh; pointer-events: none;
+              transform-origin: 58% 45%; animation: heroDrift 70s ease-in-out infinite alternate; }
+  @keyframes heroDrift { from { transform: scale(1.03) translate(0, 0); } to { transform: scale(1.10) translate(-1.6%, -1%); } }
+  .menu.hero .bg { background: ${GRAIN}, transparent; opacity: .55; }
+  .menu.hero .bg::before { background: radial-gradient(ellipse 62% 58% at 50% 40%, transparent 35%, rgba(0,0,0,.72) 100%); }
+  .menu.hero .bg::after { display: none; }
+  .menu.hero .inner { padding: 6vh 0 70px 7vw; max-width: none; text-align: left; }
+  .menu.hero .inner::before { content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+              background: linear-gradient(90deg, rgba(6,6,9,.94) 0%, rgba(6,6,9,.86) 28%, rgba(6,6,9,.35) 48%, transparent 64%); }
+  .menu.hero h1 { text-align: left; }
+  .menu.hero .sub { text-align: left; margin-left: 0; }
+  .menu.hero .sub::before { display: none; }
+  .menu.hero .stats { justify-content: flex-start; }
+  .menu.hero .btn, .menu.hero .rule { margin-left: 0; margin-right: 0; }
+  .menu.hero img.logo { width: min(440px, 80%); margin: 0 0 0 -10px;
+                        filter: drop-shadow(0 10px 0 rgba(0,0,0,.6)) drop-shadow(0 0 36px rgba(224,17,31,.55)); }
+  .menu.hero .sub { color: #e6d4a8; }
+  .menu.hero .stats { color: #a8987a; }
+  .menu.hero .stats b { color: #f3e3b6; }
+  .menu.hero .btn { max-width: 360px; }
+
   /* Embers rising through the dark, cheap enough to leave running. */
-  .embers { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; }
+  .embers { position: fixed; inset: 0; pointer-events: none; z-index: 1; overflow: hidden; }
   .menu.overlay .embers { display: none; }
   .ember { position: absolute; bottom: -10px; width: 3px; height: 3px; border-radius: 50%;
            background: #ff7a4a; box-shadow: 0 0 8px 2px rgba(255,90,50,.55); opacity: 0;
@@ -167,22 +191,22 @@ const STYLE = `
     100% { transform: translate(var(--drift), -105vh) scale(.4); opacity: 0; }
   }
 
-  .menu .inner { position: relative; z-index: 1; max-width: 960px; margin: 0 auto; padding: 26px 30px 70px; }
+  .menu .inner { position: relative; z-index: 2; max-width: 960px; margin: 0 auto; padding: 26px 30px 70px; }
   .menu.centered .inner { text-align: center; }
-  .menu.centered .btn { margin-left: auto; margin-right: auto; text-align: center; }
+  .menu.centered .btn, .menu.centered .rule { margin-left: auto; margin-right: auto; }
 
   /* Type: the heading is a slab of condensed caps with a blood underline;
      labels are brass small caps, the League way of marking a section. */
-  .menu h1 { margin: 0; font: 400 64px/1 ${DISPLAY}; text-transform: uppercase; color: var(--bone);
-             letter-spacing: .03em; text-shadow: 0 3px 0 #000, 0 0 30px rgba(224,17,31,.35); }
+  .menu h1 { margin: 0; font: 900 56px/1 ${DISPLAY}; text-transform: uppercase; color: var(--bone);
+             letter-spacing: .08em; text-shadow: 0 3px 0 #000, 0 0 30px rgba(224,17,31,.35); }
   .menu img.logo { display: block; width: min(460px, 78%); height: auto; margin: 4px auto 0;
                    filter: drop-shadow(0 8px 0 rgba(0,0,0,.55)) drop-shadow(0 0 28px rgba(224,17,31,.45)); }
   .menu .sub { margin: 8px 0 16px; color: var(--brass); letter-spacing: .32em; text-transform: uppercase;
                font: 700 11px ${BODY}; }
   .menu .sub::before, .menu .sub::after { content: '\\25C6'; font-size: 8px; vertical-align: 2px; margin: 0 12px;
                color: var(--brass-dim); }
-  .menu h2 { position: relative; font: 400 30px/1.05 ${DISPLAY}; text-transform: uppercase; color: var(--bone);
-             letter-spacing: .04em; margin: 0 0 18px; padding-bottom: 10px; text-shadow: 0 2px 0 #000; }
+  .menu h2 { position: relative; font: 700 24px/1.1 ${DISPLAY}; text-transform: uppercase; color: var(--bone);
+             letter-spacing: .14em; margin: 0 0 18px; padding-bottom: 10px; text-shadow: 0 2px 0 #000; }
   .menu h2::after { content: ''; position: absolute; left: 0; bottom: 0; width: 56px; height: 4px;
              background: var(--red); box-shadow: 0 0 12px rgba(224,17,31,.7); }
   .menu.centered h2::after { left: 50%; transform: translateX(-50%); }
@@ -192,47 +216,51 @@ const STYLE = `
   .menu .back::before { content: '\\25C0'; font-size: 9px; margin-right: 8px; vertical-align: 1px; }
   .menu .back:hover { color: var(--bone); transform: translateX(-2px); }
 
-  /* Buttons: slabs. A hard bevel, a deep drop, and a press that sinks. */
-  .btn { position: relative; display: block; width: 100%; max-width: 460px; text-align: left;
-         background: linear-gradient(#ff2a3a, #c80f1b 55%, #a80a15); color: #fff;
-         border: 0; border-radius: 2px; padding: 12px 20px 10px 22px; margin: 0 0 12px; cursor: pointer;
-         font: 400 23px/1.1 ${DISPLAY}; text-transform: uppercase; letter-spacing: .06em;
-         text-shadow: 0 2px 0 rgba(0,0,0,.55);
-         box-shadow: inset 0 2px 0 rgba(255,255,255,.28), inset 0 -3px 0 rgba(0,0,0,.35),
-                     inset 2px 0 0 rgba(255,255,255,.12), inset -2px 0 0 rgba(0,0,0,.25),
-                     0 6px 0 #4a0409, 0 10px 22px rgba(0,0,0,.6);
-         transition: transform .06s, box-shadow .06s, filter .12s; }
-  .btn::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 6px;
-         background: rgba(0,0,0,.35); }
-  .btn::after { content: ''; position: absolute; inset: 3px; border: 1px solid rgba(201,167,90,0);
-         pointer-events: none; transition: border-color .12s, box-shadow .12s; }
-  .btn:hover, .btn:focus { filter: brightness(1.12); transform: translateY(-2px); outline: none;
-         box-shadow: inset 0 2px 0 rgba(255,255,255,.28), inset 0 -3px 0 rgba(0,0,0,.35),
-                     inset 2px 0 0 rgba(255,255,255,.12), inset -2px 0 0 rgba(0,0,0,.25),
-                     0 8px 0 #4a0409, 0 14px 28px rgba(0,0,0,.65), 0 0 22px rgba(224,17,31,.35); }
-  .btn:hover::after, .btn:focus::after { border-color: var(--brass-dim); box-shadow: 0 0 10px var(--brass-glow); }
-  .btn:active { transform: translateY(4px); filter: brightness(.95);
-         box-shadow: inset 0 3px 0 rgba(0,0,0,.35), 0 2px 0 #4a0409, 0 4px 10px rgba(0,0,0,.5); }
-  .btn .k { display: block; margin-top: 4px; font: 12px/1.3 ${BODY}; text-transform: uppercase; letter-spacing: .1em;
-            color: rgba(255,255,255,.78); font-weight: 600; text-shadow: none; }
-  .btn.secondary { background: linear-gradient(var(--slab-hi), var(--slab) 55%, #131316); color: var(--bone);
-         box-shadow: inset 0 2px 0 rgba(255,255,255,.09), inset 0 -3px 0 rgba(0,0,0,.5),
-                     inset 2px 0 0 rgba(255,255,255,.05), inset -2px 0 0 rgba(0,0,0,.4),
-                     0 6px 0 #000, 0 10px 22px rgba(0,0,0,.6); }
-  .btn.secondary:hover, .btn.secondary:focus { filter: brightness(1.25);
-         box-shadow: inset 0 2px 0 rgba(255,255,255,.09), inset 0 -3px 0 rgba(0,0,0,.5),
-                     inset 2px 0 0 rgba(255,255,255,.05), inset -2px 0 0 rgba(0,0,0,.4),
-                     0 8px 0 #000, 0 14px 28px rgba(0,0,0,.65), 0 0 18px var(--brass-glow); }
-  .btn.secondary:active { box-shadow: inset 0 3px 0 rgba(0,0,0,.5), 0 2px 0 #000; }
-  .btn.secondary .k { color: var(--bone-dim); }
-  .btn.danger { background: linear-gradient(#232325, #141416); color: #ff5b66;
-         box-shadow: inset 0 0 0 1px rgba(224,17,31,.55), inset 0 -3px 0 rgba(0,0,0,.5), 0 6px 0 #000,
-                     0 10px 22px rgba(0,0,0,.6); }
-  .btn.danger:hover, .btn.danger:focus { filter: brightness(1.2);
-         box-shadow: inset 0 0 0 1px rgba(224,17,31,.9), inset 0 -3px 0 rgba(0,0,0,.5), 0 8px 0 #000,
-                     0 14px 28px rgba(0,0,0,.65), 0 0 18px rgba(224,17,31,.35); }
-  .btn.danger .k { color: #b3767b; }
-  .btn:disabled { cursor: not-allowed; }
+  /* Buttons: a dark plate in a gold hairline with bracketed corners, lit
+     from within on hover, the way a League panel invites the click. */
+  .btn { position: relative; display: block; width: 100%; max-width: 420px; text-align: center;
+         background: linear-gradient(180deg, rgba(24,26,32,.88), rgba(9,10,13,.94)); color: #d9c48f;
+         border: 1px solid rgba(200,170,110,.55); border-radius: 0; padding: 15px 26px; margin: 0 0 12px;
+         cursor: pointer; font: 700 15px/1.1 ${DISPLAY}; text-transform: uppercase; letter-spacing: .22em;
+         text-indent: .22em; white-space: nowrap; box-shadow: inset 0 0 0 1px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.05),
+         0 10px 24px rgba(0,0,0,.55); transition: color .15s, border-color .15s, box-shadow .2s, transform .12s; }
+  .btn::before { content: ''; position: absolute; inset: 4px; border: 1px solid rgba(200,170,110,.22);
+         pointer-events: none; transition: border-color .15s; }
+  .btn::after { content: ''; position: absolute; inset: 0; pointer-events: none; opacity: 0;
+         background: linear-gradient(105deg, transparent 35%, rgba(240,215,154,.22) 50%, transparent 65%);
+         background-size: 250% 100%; background-position: 120% 0; transition: opacity .15s; }
+  .btn:hover, .btn:focus { outline: none; color: #fff2cf; border-color: #ecd394; transform: translateY(-1px);
+         text-shadow: 0 0 14px rgba(236,211,148,.75), 0 0 2px rgba(255,255,255,.4);
+         box-shadow: inset 0 0 0 1px rgba(0,0,0,.7), inset 0 0 26px rgba(200,170,110,.14),
+                     0 0 26px rgba(200,170,110,.32), 0 12px 28px rgba(0,0,0,.6); }
+  .btn:hover::before, .btn:focus::before { border-color: rgba(236,211,148,.55); }
+  .btn:hover::after, .btn:focus::after { opacity: 1; animation: sheen .9s ease-out; }
+  @keyframes sheen { from { background-position: 120% 0; } to { background-position: -20% 0; } }
+  .btn:active { transform: translateY(1px); filter: brightness(.92); }
+  /* Corner brackets. */
+  .btn > i { position: absolute; width: 10px; height: 10px; pointer-events: none; }
+  .btn.primary { font-size: 22px; padding: 20px 30px; letter-spacing: .4em; text-indent: .4em; color: #f3e3b6;
+         border-color: rgba(236,211,148,.85);
+         background:
+           radial-gradient(ellipse 70% 120% at 50% 130%, rgba(224,17,31,.40), transparent 60%),
+           linear-gradient(180deg, rgba(30,30,36,.92), rgba(10,10,14,.96));
+         box-shadow: inset 0 0 0 1px rgba(0,0,0,.7), inset 0 0 22px rgba(200,170,110,.10),
+                     0 0 18px rgba(200,170,110,.18), 0 12px 30px rgba(0,0,0,.6); }
+  .btn.primary:hover, .btn.primary:focus { color: #fff;
+         box-shadow: inset 0 0 0 1px rgba(0,0,0,.7), inset 0 0 34px rgba(224,17,31,.28),
+                     0 0 36px rgba(224,17,31,.45), 0 0 20px rgba(236,211,148,.35), 0 14px 32px rgba(0,0,0,.65); }
+  .btn.secondary { color: #d9c48f; }
+  .btn.danger { color: #ff6b75; border-color: rgba(224,17,31,.55); }
+  .btn.danger:hover, .btn.danger:focus { color: #ffb3b9; border-color: rgba(255,80,95,.9);
+         text-shadow: 0 0 14px rgba(224,17,31,.8);
+         box-shadow: inset 0 0 0 1px rgba(0,0,0,.7), inset 0 0 26px rgba(224,17,31,.16),
+                     0 0 26px rgba(224,17,31,.35), 0 12px 28px rgba(0,0,0,.6); }
+  .btn:disabled { cursor: not-allowed; opacity: .45; }
+  /* An ornamental rule: a hairline fading out both ways with a diamond in the middle. */
+  .rule { position: relative; height: 1px; max-width: 420px; margin: 10px auto 18px;
+          background: linear-gradient(90deg, transparent, rgba(200,170,110,.7) 30%, rgba(200,170,110,.7) 70%, transparent); }
+  .rule::after { content: ''; position: absolute; left: 50%; top: 50%; width: 7px; height: 7px;
+          transform: translate(-50%, -50%) rotate(45deg); background: #c8aa6e; box-shadow: 0 0 10px rgba(200,170,110,.8); }
 
   /* Stat strip: brass labels, bone numbers. */
   .stats { display: flex; flex-wrap: wrap; gap: 8px 30px; margin-bottom: 20px; color: var(--muted);
@@ -279,7 +307,7 @@ const STYLE = `
   .card canvas, .card img.art { display: block; width: 100%; height: auto; background: #e9e2d0;
           border: 1px solid #000; box-shadow: inset 0 0 0 1px rgba(255,255,255,.08); }
   .card canvas[hidden], .card img.art[hidden] { display: none; }
-  .card .t { margin-top: 10px; font: 400 18px ${DISPLAY}; text-transform: uppercase; letter-spacing: .05em;
+  .card .t { margin-top: 10px; font: 700 13px ${DISPLAY}; text-transform: uppercase; letter-spacing: .12em;
              color: var(--bone); text-shadow: 0 2px 0 #000; }
   .card .d { color: var(--muted); font-size: 11px; margin-top: 2px; text-transform: uppercase; letter-spacing: .1em; }
   .card .best { color: var(--brass); font-size: 11px; margin-top: 4px; font-weight: 700; text-transform: uppercase;
@@ -314,7 +342,7 @@ const STYLE = `
           background: linear-gradient(#1d1d21, #141417); box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 3px 0 #000; }
   .seat.me { box-shadow: inset 0 0 0 1px var(--red), 0 3px 0 #000, 0 0 16px rgba(224,17,31,.25); }
   .seat.empty { color: var(--muted); border-style: dashed; border-color: #2a2a2f; background: none; box-shadow: none; }
-  .seat .n { font: 400 18px ${DISPLAY}; text-transform: uppercase; letter-spacing: .05em; flex: 1; }
+  .seat .n { font: 700 14px ${DISPLAY}; text-transform: uppercase; letter-spacing: .12em; flex: 1; }
   .seat .c { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .12em; }
   .seat .r { font: 700 10px ${BODY}; text-transform: uppercase; letter-spacing: .12em; padding: 3px 8px;
              background: #2a2a2f; color: var(--bone-dim); border: 1px solid #000; }
@@ -334,13 +362,13 @@ const STYLE = `
            border: 1px solid rgba(255,255,255,.06);
            box-shadow: 0 24px 60px rgba(0,0,0,.7), inset 0 0 0 1px rgba(0,0,0,.6); text-align: left; }
   .sheet::before { content: ''; position: absolute; inset: 6px; border: 1px solid var(--brass-dim); pointer-events: none; }
-  .sheet h1 { font-size: 52px; margin-bottom: 2px; }
+  .sheet h1 { font-size: 40px; margin-bottom: 2px; }
   .sheet .btn { max-width: none; }
 
   /* Debrief: the original's grey skull behind a blood-red score. */
   .watermark { position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity: .16;
                filter: invert(1) contrast(1.4); }
-  .debrief .big { font: 400 96px/1 ${DISPLAY}; color: var(--red-hi); margin: 2px 0 8px; letter-spacing: .02em;
+  .debrief .big { font: 900 76px/1 ${DISPLAY}; color: var(--red-hi); margin: 2px 0 8px; letter-spacing: .04em;
                   text-shadow: 0 6px 0 var(--red-lo), 0 0 40px rgba(224,17,31,.55); }
   .debrief .best { color: var(--brass); letter-spacing: .24em; text-transform: uppercase; font-size: 11px;
                    font-weight: 700; margin-bottom: 26px; }
@@ -376,6 +404,7 @@ export class Menus {
   /** True while seated on a server; changes what pause and quit mean. */
   inMatch = false;
   private lobby: LobbyView | null = null;
+  private readonly titleArt: TitleArt;
 
   constructor(
     parent: HTMLElement,
@@ -387,6 +416,11 @@ export class Menus {
   ) {
     this.selectedCharacter = save.characterId;
     this.selectedRoom = save.lastRoomId ?? rooms[0]?.id ?? '';
+    this.titleArt = new TitleArt(pack, rooms);
+    window.addEventListener('resize', () => {
+      const canvas = this.root.querySelector<HTMLCanvasElement>('canvas.hero-art');
+      if (canvas) this.titleArt.draw(canvas);
+    });
 
     const style = document.createElement('style');
     style.textContent = STYLE;
@@ -437,7 +471,8 @@ export class Menus {
     this.current = screen;
     this.root.classList.toggle('on', screen !== 'none');
     this.root.classList.toggle('overlay', screen === 'pause');
-    this.root.classList.toggle('centered', screen === 'title' || screen === 'debrief');
+    this.root.classList.toggle('centered', screen === 'debrief');
+    this.root.classList.toggle('hero', screen === 'title');
     if (screen === 'none') {
       this.root.innerHTML = '';
       this.callbacks.onScreen(screen);
@@ -478,13 +513,16 @@ export class Menus {
     this.callbacks.onScreen(screen);
   }
 
-  private shell(inner: string): HTMLDivElement {
+  private shell(inner: string, hero = false): HTMLDivElement {
+    const art = hero ? '<canvas class="hero-art"></canvas>' : '';
     const embers = EMBERS.map(
       (e) =>
         `<span class="ember" style="left:${e.left}%;width:${e.size}px;height:${e.size}px;` +
         `animation-duration:${e.duration}s;animation-delay:${e.delay}s;--drift:${e.drift}px"></span>`,
     ).join('');
-    this.root.innerHTML = `<div class="bg"></div><div class="embers">${embers}</div><div class="inner">${inner}</div>`;
+    this.root.innerHTML = `${art}<div class="bg"></div><div class="embers">${embers}</div><div class="inner">${inner}</div>`;
+    const canvas = this.root.querySelector<HTMLCanvasElement>('canvas.hero-art');
+    if (canvas) this.titleArt.draw(canvas);
     return this.root.querySelector<HTMLDivElement>('.inner')!;
   }
 
@@ -529,19 +567,15 @@ export class Menus {
         <div>best <b>${best.score.toLocaleString()}</b>${bestRoom ? ` in ${bestRoom.name}` : ''}</div>
         <div>rooms unlocked <b>${Math.min(this.save.unlockedRooms, this.rooms.length)}</b> / ${this.rooms.length}</div>
       </div>
-      <button class="btn" data-go="rooms">Play
-        <span class="k">choose a room &middot; ${this.characterName(this.selectedCharacter)} &middot; ${this.difficultyName()}${
-          this.save.practiceReason ? ` &middot; practice (${this.save.practiceReason}) &#9888;` : ''
-        }</span></button>
-      <button class="btn secondary" data-go="multiplayer">Multiplayer
-        <span class="k">join a server &middot; co-op or deathmatch</span></button>
-      <button class="btn secondary" data-go="character">Character
-        <span class="k">currently ${this.characterName(this.selectedCharacter)}</span></button>
-      <button class="btn secondary" data-go="options">Options
-        <span class="k">difficulty, game speed, devils, sound</span></button>
-      <button class="btn secondary" data-go="instructions">How to play</button>
+      <div class="rule"></div>
+      <button class="btn primary" data-go="rooms">Play</button>
+      <button class="btn" data-go="multiplayer">Multiplayer</button>
+      <button class="btn" data-go="character">Character</button>
+      <button class="btn" data-go="options">Options</button>
+      <button class="btn" data-go="instructions">How to play</button>
+      <div class="rule"></div>
       <div class="build">build ${escapeHtml(__BUILD__)}</div>
-    `);
+    `, true);
     this.wireGoButtons(inner);
     // If the logo file is missing, the text heading comes back.
     const image = inner.querySelector<HTMLImageElement>('img.logo');
@@ -731,14 +765,11 @@ export class Menus {
       <div class="sheet">
         <h1>Paused</h1>
         <div class="sub">the run is waiting</div>
-        <button class="btn" id="resume">Resume
-          <span class="k">Esc</span></button>
-        <button class="btn secondary" id="restart" ${this.inMatch ? 'hidden' : ''}>Restart room
-          <span class="k">same room, same character &mdash; this run's score is kept</span></button>
+        <button class="btn primary" id="resume">Resume</button>
+        <button class="btn secondary" id="restart" ${this.inMatch ? 'hidden' : ''}>Restart room</button>
         <button class="btn secondary" data-go="options">Options</button>
         <button class="btn secondary" data-go="instructions">How to play</button>
-        <button class="btn danger" id="quit">${this.inMatch ? 'Leave match' : 'Quit to menu'}
-          <span class="k">${this.inMatch ? 'your seat is freed for someone else' : "this run's score is kept"}</span></button>
+        <button class="btn danger" id="quit">${this.inMatch ? 'Leave match' : 'Quit to menu'}</button>
       </div>
     `);
     inner.querySelector<HTMLButtonElement>('#resume')!.addEventListener('click', () => {
@@ -844,8 +875,7 @@ export class Menus {
         <div>rooms unlocked <b>${Math.min(this.save.unlockedRooms, this.rooms.length)}</b> / ${this.rooms.length}</div>
         <div>combined best <b>${this.save.totalBest.toLocaleString()}</b></div>
       </div>
-      <button class="btn danger" id="reset">Reset scores and unlocks
-        <span class="k">this cannot be undone</span></button>
+      <button class="btn danger" id="reset">Reset scores and unlocks</button>
       </div></div>
     `);
     this.backButton(inner, this.origin);
@@ -930,8 +960,7 @@ export class Menus {
         <button class="back" style="margin:0" data-go="character">change</button>
       </div>
       <div id="netError" class="note bad" hidden></div>
-      <button class="btn" id="connect">Connect
-        <span class="k">joins the lobby; the host picks the room and mode</span></button>
+      <button class="btn primary" id="connect">Connect</button>
       </div></div>
     `);
     this.backButton(inner, 'title');
@@ -1047,13 +1076,11 @@ export class Menus {
       </div>
       ${
         view.phase === 'playing'
-          ? `<button class="btn" id="rejoin">Join the match in progress</button>`
-          : `<button class="btn ${me?.ready ? 'secondary' : ''}" id="ready">${me?.ready ? 'Not ready' : 'Ready'}
-               <span class="k">everyone must be ready before the host can start</span></button>
+          ? `<button class="btn primary" id="rejoin">Join the match in progress</button>`
+          : `<button class="btn ${me?.ready ? 'secondary' : ''}" id="ready">${me?.ready ? 'Not ready' : 'Ready'}</button>
              ${
                view.isHost
-                 ? `<button class="btn" id="start" ${everyoneReady ? '' : 'disabled style="opacity:.5"'}>Start match
-                      <span class="k">${everyoneReady ? 'everyone is ready' : 'waiting for players to ready up'}</span></button>`
+                 ? `<button class="btn primary" id="start" ${everyoneReady ? '' : 'disabled style="opacity:.5"'}>Start match</button>`
                  : `<p class="hint">Waiting for the host to start.</p>`
              }`
       }
@@ -1103,8 +1130,7 @@ export class Menus {
           <div>kills <b>${result.kills}</b></div>
           ${result.unlockedNext ? '<div class="unlocked">new room unlocked</div>' : ''}
         </div>
-        <button class="btn" id="again">Play again
-          <span class="k">${result.roomName}, same character</span></button>
+        <button class="btn primary" id="again">Play again</button>
         <button class="btn secondary" data-go="rooms">Choose another room</button>
         <button class="btn secondary" data-go="title">Main menu</button>
       </div>
