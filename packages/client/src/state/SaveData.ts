@@ -8,6 +8,24 @@
  */
 
 const STORAGE_KEY = 'boxhead.save.v1';
+/** A run parked mid-wave, kept apart from the save so its size never bloats it. */
+const RUN_KEY = 'boxhead.run.v1';
+
+export interface SavedRun {
+  roomId: string;
+  characterId: string;
+  difficulty: string;
+  gameSpeed: string;
+  devils: boolean;
+  countsForHighScores: boolean;
+  practiceReason: string | null;
+  /** The world, as `World.snapshot()` wrote it. */
+  snapshot: unknown;
+  /** For the title's label. */
+  level: number;
+  score: number;
+  savedAt: number;
+}
 
 export interface RoomRecord {
   /** Best score achieved in this arena. */
@@ -231,6 +249,35 @@ export class SaveData {
   resetTips(): void {
     delete this.state.tipsSeen;
     this.persist();
+  }
+
+  /** The run parked by the last session, if any. */
+  get savedRun(): SavedRun | null {
+    try {
+      const raw = localStorage.getItem(RUN_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as Partial<SavedRun>;
+      if (!parsed.roomId || !parsed.snapshot || typeof parsed.level !== 'number') return null;
+      return parsed as SavedRun;
+    } catch {
+      return null;
+    }
+  }
+
+  parkRun(run: SavedRun): void {
+    try {
+      localStorage.setItem(RUN_KEY, JSON.stringify(run));
+    } catch {
+      // Storage can be full or blocked; the run simply is not parked.
+    }
+  }
+
+  clearSavedRun(): void {
+    try {
+      localStorage.removeItem(RUN_KEY);
+    } catch {
+      // Nothing to do.
+    }
   }
 
   /** Bind an action to one key, replacing whatever it had. */

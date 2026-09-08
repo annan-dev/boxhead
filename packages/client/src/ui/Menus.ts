@@ -97,6 +97,8 @@ export interface ScreenArt {
 
 export interface MenuCallbacks {
   onStart: (roomId: string, characterId: string) => void;
+  /** Pick up the parked run. */
+  onContinue: () => void;
   onResume: () => void;
   /** Restart the current run in the same arena. */
   onRestart: () => void;
@@ -670,6 +672,8 @@ export class Menus {
   private renderTitle(): void {
     const best = this.save.bestOverall;
     const bestRoom = this.rooms.find((room) => room.id === best.roomId);
+    const parked = this.save.savedRun;
+    const parkedRoom = parked ? this.rooms.find((room) => room.id === parked.roomId) : undefined;
     const logo = this.screens?.logo;
     const inner = this.shell(`
       <h1 ${logo ? 'hidden' : ''}>BOXHEAD</h1>
@@ -680,7 +684,13 @@ export class Menus {
         <div>rooms unlocked <b>${Math.min(this.save.unlockedRooms, this.rooms.length)}</b> / ${this.rooms.length}</div>
       </div>
       <div class="rule"></div>
-      <button class="btn primary" data-go="rooms">Play</button>
+      ${
+        parked && parkedRoom
+          ? `<button class="btn primary" id="continue">Continue</button>
+             <div class="stats" style="margin:-6px 0 12px"><div>${escapeHtml(parkedRoom.name)} &middot; level <b>${parked.level}</b> &middot; <b>${parked.score.toLocaleString()}</b></div></div>
+             <button class="btn" data-go="rooms">New game</button>`
+          : `<button class="btn primary" data-go="rooms">Play</button>`
+      }
       <button class="btn" data-go="multiplayer">Multiplayer</button>
       <button class="btn" data-go="character">Character</button>
       <button class="btn" data-go="options">Options</button>
@@ -689,6 +699,7 @@ export class Menus {
       <div class="build">build ${escapeHtml(__BUILD__)}</div>
     `, true);
     this.wireGoButtons(inner);
+    inner.querySelector<HTMLButtonElement>('#continue')?.addEventListener('click', () => this.callbacks.onContinue());
     // If the logo file is missing, the text heading comes back.
     const image = inner.querySelector<HTMLImageElement>('img.logo');
     image?.addEventListener('error', () => {

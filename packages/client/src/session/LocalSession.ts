@@ -8,6 +8,7 @@ import {
   tickMsFor,
   type ExtractedRoom,
   type InputCommand,
+  type WorldSnapshot,
 } from '@boxhead/shared';
 import type { Input } from '../input/Input.js';
 import type { Camera } from '../render/Camera.js';
@@ -19,6 +20,8 @@ export interface LocalOptions {
   difficulty: string;
   gameSpeed: string;
   devils: boolean;
+  /** A parked run to pick up where it left off. */
+  snapshot?: WorldSnapshot;
 }
 
 export class LocalSession implements Session {
@@ -47,6 +50,7 @@ export class LocalSession implements Session {
       devils: options.devils,
       speedFactor: speed.factor,
     });
+    if (options.snapshot) this.world.restore(options.snapshot);
     // Game speed scales the wall time per step, as the original scaled its
     // logic rate; the simulation itself stays a fixed 50Hz.
     this.stepMs = tickMsFor(options.gameSpeed);

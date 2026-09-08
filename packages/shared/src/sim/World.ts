@@ -329,6 +329,11 @@ export class World {
     return this.peakMultiplier;
   }
 
+  /** The Devils option this world was built with. */
+  get devilsEnabled(): boolean {
+    return this.devilsActive;
+  }
+
   /** Creatures still to kill this level: unspawned plus those still standing. */
   get waveRemaining(): number {
     const queued =

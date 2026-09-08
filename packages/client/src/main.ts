@@ -20,6 +20,7 @@ import {
   type Player,
   type SoundEvent,
   type World,
+  type WorldSnapshot,
 } from '@boxhead/shared';
 import { Loop } from './loop/Loop.js';
 import { Input, keyName, type Bindings } from './input/Input.js';
@@ -193,6 +194,7 @@ let slowMotion = false;
 
 const menus = new Menus(app, pack, rooms, save, screens, {
   onStart: (roomId, characterId) => startRun(roomId, characterId),
+  onContinue: () => continueRun(),
   onResume: () => {
     menus.show('none');
     paused = false;
@@ -374,6 +376,7 @@ function applyFeelSettings(): void {
 
 function startRun(roomId: string, characterId: string): void {
   endRun();
+  save.clearSavedRun();
   const room = rooms.find((r) => r.id === roomId) ?? rooms[0]!;
   const session = new LocalSession({
     room,
@@ -399,6 +402,71 @@ function controlsHint(): string {
   const move = (['up', 'left', 'down', 'right'] as const).map((a) => keyName(input.keysFor(a)[0] ?? '')).join('');
   return `<b>${move}</b> move &nbsp; <b>mouse</b> aim &nbsp; <b>click</b> fire &nbsp; <b>Esc</b> menu`;
 }
+
+/**
+ * Park a single-player run mid-wave so a closed tab or a crash does not
+ * cost it. Called on focus loss, on the pause menu and when the page goes.
+ */
+function parkRun(): void {
+  if (!run || !(run.session instanceof LocalSession)) return;
+  const { session } = run;
+  const { world } = session;
+  if (world.gameOver || debriefed) return;
+  save.parkRun({
+    roomId: session.room.id,
+    characterId: run.characterId,
+    difficulty: session.difficulty,
+    gameSpeed: save.gameSpeed,
+    devils: world.devilsEnabled,
+    countsForHighScores: run.countsForHighScores,
+    practiceReason: run.practiceReason,
+    snapshot: world.snapshot(),
+    level: world.level,
+    score: world.score,
+    savedAt: Date.now(),
+  });
+}
+
+/** Pick the parked run back up exactly where it stopped. */
+function continueRun(): void {
+  const parked = save.savedRun;
+  if (!parked) {
+    menus.show('title');
+    return;
+  }
+  endRun();
+  const room = rooms.find((r) => r.id === parked.roomId) ?? rooms[0]!;
+  let session: LocalSession;
+  try {
+    session = new LocalSession({
+      room,
+      characterId: parked.characterId,
+      difficulty: parked.difficulty,
+      gameSpeed: parked.gameSpeed,
+      devils: parked.devils,
+      snapshot: parked.snapshot as WorldSnapshot,
+    });
+  } catch {
+    // A snapshot from an older build may not restore; drop it rather than crash.
+    save.clearSavedRun();
+    menus.show('title');
+    return;
+  }
+  bind(session, parked.characterId);
+  if (run) {
+    run.countsForHighScores = parked.countsForHighScores;
+    run.practiceReason = parked.practiceReason;
+  }
+  paused = false;
+  debriefed = false;
+  input.clearLatches();
+  menus.inMatch = false;
+  menus.show('none');
+  showHint('<b>run restored</b> &nbsp; ' + controlsHint());
+  tipCooldown = 250;
+}
+window.addEventListener('pagehide', parkRun);
+window.addEventListener('beforeunload', parkRun);
 
 function connect(address: string, name: string, characterId: string): void {
   endRun();
@@ -457,6 +525,8 @@ function endRun(): void {
 function recordRun(): RunResult | null {
   if (!run || debriefed || !run.session.recordsScores) return null;
   debriefed = true;
+  // The run is over one way or another; there is nothing left to park.
+  save.clearSavedRun();
   const { world, room } = run.session;
   const local = run.session instanceof LocalSession ? run.session : null;
   const seconds = Math.round((world.tick * run.session.stepMs) / 1000);
@@ -567,6 +637,7 @@ function pauseForFocusLoss(): void {
   if (run.session instanceof NetSession || run.session.world.gameOver) return;
   paused = true;
   input.clearLatches();
+  parkRun();
 }
 window.addEventListener('blur', pauseForFocusLoss);
 document.addEventListener('visibilitychange', () => {
@@ -581,6 +652,7 @@ window.addEventListener('keydown', (event) => {
   if (event.code === 'Escape' && run && !ended) {
     event.preventDefault();
     paused = false;
+    parkRun();
     menus.show('pause');
     return;
   }
