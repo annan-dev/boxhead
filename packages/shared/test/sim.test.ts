@@ -758,22 +758,3 @@ test('room 3: border spawns behind the prebuilt walls stay shut until the walls 
   assert.ok(came, 'the pocket never opened after its walls fell');
 });
 
-test('a shared-screen tether stops a player walking away from the other', () => {
-  const world = new World({ room, seed: 5, playerCount: 2, characters: ['swat', 'bond'], devils: false, tether: 200 });
-  const [a, b] = world.players as [typeof world.players[0], typeof world.players[0]];
-  // Nobody dies (and respawns beside the other) while the tether is measured.
-  a.invincible = 100000;
-  b.invincible = 100000;
-  const still = (): InputCommand => ({ ...emptyCommand(), aimX: a.x, aimY: a.y + 100 });
-  const away = (): InputCommand => ({ ...emptyCommand(), moveX: -1, aimX: a.x - 100, aimY: a.y });
-  // A spawns west of B; it marches west along the open middle row while B
-  // stands still, and must stop at the tether's length.
-  for (let i = 0; i < 150; i++) world.step([away(), still()]);
-  const gap = Math.hypot(a.x - b.x, a.y - b.y);
-  assert.ok(gap <= 200 + 1, `tether stretched to ${gap.toFixed(1)}px`);
-  assert.ok(gap > 150, `player never moved out: ${gap.toFixed(1)}px`);
-  // Walking back is always allowed.
-  const before = gap;
-  for (let i = 0; i < 20; i++) world.step([{ ...emptyCommand(), moveX: 1, aimX: a.x, aimY: a.y }, still()]);
-  assert.ok(Math.hypot(a.x - b.x, a.y - b.y) < before, 'walking back was blocked');
-});

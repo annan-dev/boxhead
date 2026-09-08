@@ -367,3 +367,22 @@ Tests: 85 pass / 0 fail (1 new, `packages/server/test/welcome.test.ts`: a room o
 1. (dim 11 +~0.5, dim 1 nit) Measure prediction under real latency. Give `runCoop` a `--delay <ms>` that holds every socket message on the server for that long (a dev-only `setTimeout` around `send` and around each inbound handler in the socket wrapper), run the drive at 80 and 150 ms, and report per client `unacked`, `replayed`, `corrections` and the last correction in px beside the 2 ms figures; drive the host's reconnect in the same run. The one multiplayer number a reviewer asks for and the harness has never produced. ~1 h.
 2. (dim 6 +~0.25, dim 4 nit) Finish the seat-resolved tip and tidy the Feel grid. In `shared-tips` unlock the barrel for seat 1 through the debug hook so the captured hint contains "(cycle with , and .)", and have `keyFor` consult `input.padSeat === 1` to say "cycle with the bumpers" when P2 is on the pad; then widen the Feel label column to ~200 px so "CAMERA LEADS THE AIM" sits on one line and give `#resetTips` `justify-self: start` so it is a chip, not a slab. ~30 min.
 3. (dim 1 nit, dim 10 +~0.25) Picture the lean, fire the close reason, scale the tick. In `lead()` set the lead back to 1, settle the camera and step once before `debugBot(0)` so lead.png shows the 64 px lean the number reports; add a scenario where the server drops the guest for good (close its socket from the server side with a reason) and assert `closes.guest` is non-empty and the multiplayer screen shows it; and scale the facing tick with `hudScale` in `Hud`. ~40 min.
+
+## Owner's correction — 2026-09-08 — after loop 14
+
+Not a scored loop. The owner reviewed loops 9-14 and asked for three things,
+which are done in the commit that carries this entry:
+
+- **Local two-player on one screen is removed**, and is out of scope from here
+  on (see the rubric). Gone: the room-screen toggle and second face, the second
+  seat's keys and its column under Options › Controls, the pad-as-seat-two
+  routing, the shared-screen camera, view scale and tether, the two weapon
+  strips and facing tick, the per-seat heartbeat and tips, local deathmatch
+  and its debrief, and the shared scenarios in the harness. Fix 2 of loop 14's
+  list (seat-resolved tips) is void. Online co-op and deathmatch are untouched.
+- **Block shadows** were a hard-edged band starting partway down a wall's side,
+  with a darker square where the two gradients overlapped (a user screenshot
+  under the pause overlay). They are now one blurred silhouette per arena,
+  drawn once into the floor.
+- **Options › Controls**: the reset button's drop shadow reached up over the
+  last row of keys; the grid now clears it, and it lays out as two columns.

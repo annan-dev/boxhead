@@ -10,7 +10,6 @@
  * has and draws the result.
  */
 import {
-  CHARACTERS,
   ROOMS,
   TICK_MS,
   WEAPONS,
@@ -48,9 +47,6 @@ import { addCharacterHeads } from './render/HeadArt.js';
  */
 const VIEW_WORLD_WIDTH = 720;
 const VIEW_WORLD_HEIGHT = 460;
-/** Two players on one screen see this much more arena. */
-const SHARED_SCREEN_VIEW = 1.3;
-let viewScale = 1;
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 app.innerHTML = `
@@ -120,7 +116,6 @@ const rooms: ExtractedRoom[] = pack.rooms.length > 0 ? pack.rooms : ROOMS;
 const save = new SaveData();
 const input = new Input(canvas);
 input.setBindings(save.keys as Partial<Bindings>);
-input.setSeatBBindings(save.keysB as Partial<Bindings>);
 input.setPadBindings(save.pad as Partial<PadBindings>);
 
 // The original's own menu pictures: logo, level icons, portraits. Optional;
@@ -234,7 +229,6 @@ const menus = new Menus(app, pack, rooms, save, screens, {
   onFeel: () => applyFeelSettings(),
   onKeys: () => {
     input.setBindings(save.keys as Partial<Bindings>);
-    input.setSeatBBindings(save.keysB as Partial<Bindings>);
     input.setPadBindings(save.pad as Partial<PadBindings>);
   },
   onPadSeen: () => {
@@ -279,13 +273,9 @@ function showHint(text: string, ms = 4200): void {
  */
 interface Tip {
   id: string;
-  /** The line, for the seat it is shown to: the first seat has number keys, the second has none. */
-  text: string | ((seat: number) => string);
+  text: string;
   when: (world: World, me: Player) => boolean;
 }
-/** "(4)" for the first seat; the second seat cycles to a weapon with its own keys. */
-const keyFor = (slot: number, seat: number): string =>
-  seat === 0 ? `(${slot})` : `(cycle with ${keyName(input.seatBKeys('prev')[0] ?? 'Comma')} and ${keyName(input.seatBKeys('next')[0] ?? 'Period')})`;
 const unlocked = (me: Player, id: string): boolean => me.weapons.get(id as never)?.unlocked === true;
 const TIPS: Tip[] = [
   {
@@ -305,27 +295,27 @@ const TIPS: Tip[] = [
   },
   {
     id: 'barrel',
-    text: (seat) => `<b>barrels</b> ${keyFor(4, seat)} drop one cell ahead &mdash; zombies cannot pass, one shot sets it off`,
+    text: '<b>barrels</b> (4) drop one cell ahead &mdash; zombies cannot pass, one shot sets it off',
     when: (_, me) => unlocked(me, 'barrel'),
   },
   {
     id: 'grenade',
-    text: (seat) => `<b>grenade</b> ${keyFor(5, seat)} &mdash; hold to throw farther, release to lob`,
+    text: '<b>grenade</b> (5) &mdash; hold to throw farther, release to lob',
     when: (_, me) => unlocked(me, 'grenade'),
   },
   {
     id: 'wall',
-    text: (seat) => `<b>fake walls</b> ${keyFor(6, seat)} hold zombies off for good; only devils and your own fire bring them down`,
+    text: '<b>fake walls</b> (6) hold zombies off for good; only devils and your own fire bring them down',
     when: (_, me) => unlocked(me, 'fakewall'),
   },
   {
     id: 'mine',
-    text: (seat) => `<b>mines</b> ${keyFor(7, seat)} arm once you step off; whatever treads on one sets it off`,
+    text: '<b>mines</b> (7) arm once you step off; whatever treads on one sets it off',
     when: (_, me) => unlocked(me, 'mine'),
   },
   {
     id: 'charge',
-    text: (seat) => `<b>charge packs</b> ${keyFor(9, seat)} &mdash; press to place, press again to blow them all`,
+    text: '<b>charge packs</b> (9) &mdash; press to place, press again to blow them all',
     when: (_, me) => unlocked(me, 'chargepack'),
   },
   {
@@ -337,21 +327,17 @@ const TIPS: Tip[] = [
 let tipCooldown = 0;
 
 /** Show the first tip whose moment has come, one at a time, spaced out. */
-function offerTips(world: World, me: Player, seat = 0): boolean {
+function offerTips(world: World, me: Player): boolean {
   if (!save.tips) return false;
   if (tipCooldown > 0) {
-    if (seat === 0) tipCooldown -= 1;
+    tipCooldown -= 1;
     return false;
   }
   if (hint.classList.contains('on')) return false;
-  const shared = run?.session instanceof LocalSession && run.session.localSeats >= 2;
   for (const tip of TIPS) {
-    // Each seat keeps its own seen-list, so the newcomer at the arrows is taught too.
-    const id = seat === 0 ? tip.id : `${tip.id}@${seat + 1}`;
-    if (save.hasSeenTip(id) || !tip.when(world, me)) continue;
-    save.markTip(id);
-    const text = typeof tip.text === 'function' ? tip.text(seat) : tip.text;
-    showHint(shared ? `<b>P${seat + 1}</b> &nbsp; ${text}` : text, 5200);
+    if (save.hasSeenTip(tip.id) || !tip.when(world, me)) continue;
+    save.markTip(tip.id);
+    showHint(tip.text, 5200);
     // Leave a gap after one tip so two never run together.
     tipCooldown = 400;
     return true;
@@ -367,9 +353,7 @@ const presenter: Presenter = {
     // A grunt is the hurt player's own: a partner's plays quietly where they
     // stand, never full in the centre as if it were you.
     if (event.name === 'UI.Hurt') {
-      const mine = session.world.players.some(
-        (p) => p.id === event.ownerId && (p.index === session.localPlayerIndex || (session instanceof LocalSession && p.index < session.localSeats)),
-      );
+      const mine = session.world.players.some((p) => p.id === event.ownerId && p.index === session.localPlayerIndex);
       if (!mine) return;
     }
     const listener = { x: camera.x, y: camera.y, halfWidth: camera.viewWidth / 2 };
@@ -386,15 +370,10 @@ function bind(session: Session, characterId: string): void {
   // Older art packs carry no floor extent; the whole map stands in for it.
   const bounds = room.floorBounds ?? { x: 0, y: 0, w: room.width, h: room.height };
   const camera = new Camera(canvas.width, canvas.height, bounds);
-  const seats = session instanceof LocalSession ? session.localSeats : 1;
-  viewScale = seats >= 2 ? SHARED_SCREEN_VIEW : 1;
-  input.setLocalPlayers(seats);
-  camera.resize(canvas.width, canvas.height, VIEW_WORLD_WIDTH * viewScale, VIEW_WORLD_HEIGHT * viewScale);
+  camera.resize(canvas.width, canvas.height, VIEW_WORLD_WIDTH, VIEW_WORLD_HEIGHT);
   const player = world.players[session.localPlayerIndex] ?? world.players[0];
   if (player) camera.jumpTo(player.x, player.y);
-  const names = session instanceof NetSession
-    ? (index: number) => session.nameOf(index)
-    : seats >= 2 ? (index: number) => `P${index + 1}` : () => null;
+  const names = session instanceof NetSession ? (index: number) => session.nameOf(index) : () => null;
   run = {
     session,
     countsForHighScores: save.countsForHighScores,
@@ -404,7 +383,6 @@ function bind(session: Session, characterId: string): void {
     camera,
     characterId,
   };
-  run.hud.localSeats = seats;
   applyFeelSettings();
   loop.setStepMs(session.stepMs);
   slowMotion = false;
@@ -434,7 +412,6 @@ function startRun(roomId: string, characterId: string): void {
     gameSpeed: save.gameSpeed,
     devils: save.devils,
     ...(save.startLevel > 0 ? { startLevel: save.startLevel } : {}),
-    ...(save.sharedScreen ? { secondCharacterId: save.secondCharacterId, mode: save.sharedMode } : {}),
   });
   bind(session, characterId);
   paused = false;
@@ -447,11 +424,6 @@ function startRun(roomId: string, characterId: string): void {
 }
 
 function controlsHint(): string {
-  if (save.sharedScreen) {
-    return input.padSeen
-      ? '<b>P1</b> keyboard + mouse &nbsp; <b>P2</b> gamepad &nbsp; <b>Esc</b> menu'
-      : '<b>P1</b> WASD + mouse &nbsp; <b>P2</b> arrows + Enter &nbsp; <b>Esc</b> menu';
-  }
   if (input.padSeen) {
     return '<b>stick</b> move &nbsp; <b>right stick</b> aim &nbsp; <b>trigger</b> fire &nbsp; <b>start</b> pause';
   }
@@ -477,9 +449,6 @@ function parkRun(): void {
     countsForHighScores: run.countsForHighScores,
     practiceReason: run.practiceReason,
     startLevel: session.customStart,
-    ...(session.localSeats >= 2
-      ? { secondCharacterId: world.players[1]?.characterId ?? save.secondCharacterId, mode: session.mode }
-      : {}),
     snapshot: world.snapshot(),
     level: world.level,
     score: world.score,
@@ -506,7 +475,6 @@ function continueRun(): void {
       devils: parked.devils,
       snapshot: parked.snapshot as WorldSnapshot,
       ...(parked.startLevel ? { startLevel: parked.startLevel } : {}),
-      ...(parked.secondCharacterId ? { secondCharacterId: parked.secondCharacterId, mode: parked.mode ?? 'coop' } : {}),
     });
   } catch {
     // A snapshot from an older build may not restore; drop it rather than crash.
@@ -587,35 +555,6 @@ function endRun(): void {
 /** Bank the current run's result exactly once, whatever ended it. */
 function recordRun(): RunResult | null {
   if (!run || debriefed) return null;
-  if (run.session instanceof LocalSession && run.session.mode === 'deathmatch') {
-    // A deathmatch leaves a winner, not a score, and nothing in the save.
-    debriefed = true;
-    save.clearSavedRun();
-    const { world, room } = run.session;
-    return {
-      roomId: room.id,
-      roomName: room.name,
-      score: 0,
-      level: world.level,
-      kills: world.kills,
-      peakMultiplier: 0,
-      seconds: Math.round((world.tick * run.session.stepMs) / 1000),
-      difficulty: run.session.difficulty,
-      levelsCleared: 0,
-      bestBefore: 0,
-      accuracy: null,
-      longestStreak: 0,
-      favouriteWeapon: null,
-      isBest: false,
-      unlockedNext: false,
-      practice: null,
-      versus: {
-        winnerIndex: world.winnerIndex,
-        kills: world.players.map((p) => p.kills),
-        names: world.players.map((p, i) => `P${i + 1} ${CHARACTERS.find((c) => c.id === p.characterId)?.name ?? ''}`.trim()),
-      },
-    };
-  }
   if (!run.session.recordsScores) return null;
   debriefed = true;
   // The run is over one way or another; there is nothing left to park.
@@ -680,7 +619,7 @@ function resize(): void {
   canvas.width = width;
   canvas.height = height;
   ctx.imageSmoothingEnabled = false;
-  run?.camera.resize(width, height, VIEW_WORLD_WIDTH * viewScale, VIEW_WORLD_HEIGHT * viewScale);
+  run?.camera.resize(width, height, VIEW_WORLD_WIDTH, VIEW_WORLD_HEIGHT);
 }
 window.addEventListener('resize', resize);
 // Layout can settle after the module runs, so track the element itself.
@@ -828,24 +767,16 @@ const loop = new Loop(
         }
         if (world.hurt > lastHurt + 0.05 && save.rumble) input.rumble(140, 0.9, 0.5);
         lastHurt = world.hurt;
-        // The heartbeat has a sound: a thump on each rise while a seat is low.
-        let lowest = 1;
-        const seats = run.session instanceof LocalSession ? run.session.localSeats : 1;
-        for (let seat = 0; seat < seats; seat++) {
-          // Seat 0 is whoever this screen drives, which online is not player 0.
-          const p = world.players[seat === 0 ? run.session.localPlayerIndex : seat];
-          if (p && p.state === 'alive') lowest = Math.min(lowest, p.life / p.maxLife);
-        }
+        // The heartbeat has a sound: a thump on each rise while the player is low.
+        const me = world.players[run.session.localPlayerIndex];
+        const lowest = me && me.state === 'alive' ? me.life / me.maxLife : 1;
         const beat = run.hud.heartbeat(lowest);
         // On each rise: the lub at full, the dub (which never passes 0.55) softer.
         if (beat > 0.3 && lastBeat <= 0.3) {
           audio.play(beat > 0.6 || Hud.heartbeatAt(world.tick + 1, lowest) > 0.6 ? 'UI.Heart' : 'UI.HeartSoft', 0, 0, 1, { x: 0, y: 0, halfWidth: 1 });
         }
         lastBeat = beat;
-        const me = world.players[run.session.localPlayerIndex];
         if (me && me.state === 'alive' && !world.gameOver) offerTips(world, me);
-        const second = run.session instanceof LocalSession && run.session.localSeats >= 2 ? world.players[1] : undefined;
-        if (second && second.state === 'alive' && !world.gameOver) offerTips(world, second, 1);
         // Park every ten seconds as well, against a crash the page never sees coming.
         if (world.tick % 500 === 0) parkRun();
       }
@@ -856,16 +787,7 @@ const loop = new Loop(
       // Follow whoever is alive if the local player is not, so a fallen or
       // still-seating player can watch the match.
       const target = local && local.state !== 'dead' ? local : world.players.find((p) => p.state === 'alive');
-      const seats = run.session instanceof LocalSession ? run.session.localSeats : 1;
-      if (seats >= 2) {
-        // Two on one screen: the camera holds the point between the living.
-        const living = world.players.filter((p) => p.connected && p.state !== 'dead');
-        if (living.length > 0) {
-          const mx = living.reduce((sum, p) => sum + p.x, 0) / living.length;
-          const my = living.reduce((sum, p) => sum + p.y, 0) / living.length;
-          run.camera.follow(mx, my);
-        }
-      } else if (target) {
+      if (target) {
         // Lean the camera a little toward the aim, so the player sees more
         // of where they are shooting than of what is behind them.
         const lead = target === local && local.state === 'alive' ? aimLead(local, save.cameraLead) : { x: 0, y: 0 };
@@ -1172,14 +1094,14 @@ if (import.meta.env.DEV) {
       return debugStats();
     },
     debugStats,
-    /** Force the next tip for a seat, ignoring the cooldown, and return the hint shown. */
-    debugTip(seat: number): string | null {
+    /** Force the next tip, ignoring the cooldown, and return the hint shown. */
+    debugTip(): string | null {
       if (!run) return null;
-      const player = run.session.world.players[seat === 0 ? run.session.localPlayerIndex : seat];
+      const player = run.session.world.players[run.session.localPlayerIndex];
       if (!player) return null;
       tipCooldown = 0;
       hint.classList.remove('on');
-      return offerTips(run.session.world, player, seat) ? hint.innerHTML : null;
+      return offerTips(run.session.world, player) ? hint.innerHTML : null;
     },
   };
 }

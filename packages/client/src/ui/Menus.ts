@@ -17,7 +17,7 @@
  * what you get; the original's own bitmaps replace them when present.
  */
 import type { ArtPack, ExtractedRoom, LobbyPlayer, MatchConfig, RoomPhase } from '@boxhead/shared';
-import { CHARACTERS, DEATHMATCH_KILL_TARGETS, DIFFICULTIES, GAME_SPEEDS, practiceStart } from '@boxhead/shared';
+import { CHARACTERS, DIFFICULTIES, GAME_SPEEDS, practiceStart } from '@boxhead/shared';
 import { drawComposed, type TextureSwap } from '../render/VectorModel.js';
 import { ClipIndex, composePose, type Layer } from '../render/Rig.js';
 import { drawSprite } from '../render/SpriteRenderer.js';
@@ -30,7 +30,6 @@ import {
   ACTION_LABELS,
   DEFAULT_BINDINGS,
   DEFAULT_PAD,
-  DEFAULT_SEAT_B,
   PAD_ACTION_LABELS,
   RESERVED_KEYS,
   firstGamepad,
@@ -89,8 +88,6 @@ export interface RunResult {
   unlockedNext: boolean;
   /** Why the run did not count for high scores, or null when it did. */
   practice: string | null;
-  /** A deathmatch's outcome: who won and each seat's kills. Nothing is recorded. */
-  versus?: { winnerIndex: number; kills: number[]; names: string[] };
 }
 
 /** "today 14:02", "yesterday", or a short date, for the history. */
@@ -416,8 +413,10 @@ const STYLE = `
   section[data-tab="feel"] .row input[type=checkbox] { justify-self: start; }
   button.badge.chip { cursor: pointer; margin-left: 8px; }
   button.badge.chip:hover, button.badge.chip:focus { outline: none; color: #fff; border-color: var(--brass); box-shadow: 0 0 10px var(--brass-glow); }
-  .controls { display: grid; grid-template-columns: 1fr; gap: 6px 28px; margin-bottom: 14px; }
-  @media (min-width: 1180px) { .controls { grid-template-columns: 1fr 1fr 1fr; } .controls .keygrid.one { grid-template-columns: 1fr; max-width: none; } }
+  /* Keyboard and gamepad side by side when there is room. The margin below keeps the
+     reset button's drop shadow, which reaches some way above it, off the last row of keys. */
+  .controls { display: grid; grid-template-columns: 1fr; gap: 6px 28px; margin-bottom: 30px; }
+  @media (min-width: 900px) { .controls { grid-template-columns: 1fr 1fr; } .controls .keygrid.one { grid-template-columns: 1fr; max-width: none; } }
   .keygrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0 30px; max-width: 700px; }
   .keygrid .row { margin-bottom: 10px; }
   .keygrid label { min-width: 140px; }
@@ -935,44 +934,15 @@ export class Menus {
       <div class="stats">
         <div>playing as <b>${this.characterName(this.selectedCharacter)}</b></div>
         <div>difficulty <b>${this.difficultyName()}</b></div>
-        <div><label style="cursor:pointer"><input type="checkbox" id="shared" ${this.save.sharedScreen ? 'checked' : ''} style="accent-color:var(--red);vertical-align:-2px;margin-right:6px">two players on this screen</label></div>
-        ${
-          this.save.sharedScreen
-            ? `<div>player 2 <b>${this.characterName(this.save.secondCharacterId)}</b>
-                 <button class="back" id="secondChar" style="margin:0 0 0 8px">change</button>
-                 &middot; <span style="text-transform:none;letter-spacing:0">gamepad, or arrows + Enter, Backspace pauses</span></div>
-               <div><label style="cursor:pointer"><input type="checkbox" id="sharedDm" ${this.save.sharedMode === 'deathmatch' ? 'checked' : ''} style="accent-color:var(--red);vertical-align:-2px;margin-right:6px">deathmatch &mdash; head to head, first to ${DEATHMATCH_KILL_TARGETS[1]}</label></div>`
-            : ''
-        }
         ${this.save.practiceReason ? `<div><span class="badge strong">&#9888; practice run &mdash; ${this.save.practiceReason}</span>${this.save.startLevel ? ' <button class="badge chip" id="practiceOff" type="button">practice off</button>' : ''}</div>` : ''}
       </div>
       <div class="panel"><div class="paper"><div class="grid">${cards}</div></div></div>
     `);
     this.backButton(inner, 'title');
-    const shared = inner.querySelector<HTMLInputElement>('#shared')!;
-    shared.addEventListener('change', () => {
-      this.save.setSharedScreen(shared.checked);
-      // The second seat gets a different face from the first.
-      if (shared.checked && this.save.secondCharacterId === this.selectedCharacter) {
-        const other = CHARACTERS.find((c) => c.id !== this.selectedCharacter);
-        if (other) this.save.setSecondCharacter(other.id);
-      }
-      this.renderRooms();
-    });
     inner.querySelector<HTMLButtonElement>('#practiceOff')?.addEventListener('click', () => {
       this.save.setStartLevel(0);
       this.renderRooms();
     });
-    inner.querySelector<HTMLButtonElement>('#secondChar')?.addEventListener('click', () => {
-      // Step to the next face that is not the first seat's.
-      const ids = CHARACTERS.map((c) => c.id);
-      let next = ids[(ids.indexOf(this.save.secondCharacterId) + 1) % ids.length]!;
-      if (next === this.selectedCharacter) next = ids[(ids.indexOf(next) + 1) % ids.length]!;
-      this.save.setSecondCharacter(next);
-      this.renderRooms();
-    });
-    const sharedDm = inner.querySelector<HTMLInputElement>('#sharedDm');
-    sharedDm?.addEventListener('change', () => this.save.setSharedMode(sharedDm.checked ? 'deathmatch' : 'coop'));
 
     for (const canvas of inner.querySelectorAll<HTMLCanvasElement>('[data-map]')) {
       const room = this.rooms.find((r) => r.id === canvas.dataset.map);
@@ -1151,9 +1121,6 @@ export class Menus {
         <dt>R &middot; M &middot; F3</dt><dd>restart while paused &middot; mute &middot; performance stats</dd>
         <dt>Gamepad</dt><dd>sticks move and aim, trigger fires, bumpers cycle, Start pauses; every
           button is listed under Options, Controls</dd>
-        <dt>Two players</dt><dd>tick <i>two players on this screen</i> when choosing a room: player 2
-          takes the gamepad or the arrows and Enter, and you share one screen and one score. Tick
-          <i>deathmatch</i> for the original's head to head, first to twenty.</dd>
       </dl>
       </div>
       <div>
@@ -1283,25 +1250,13 @@ export class Menus {
       <div id="keyNote" class="note bad" hidden></div>
       <div class="controls">
       <div>
-      <p class="hint colhead">Player 1 on the keyboard</p>
+      <p class="hint colhead">Keyboard</p>
       <div class="keygrid one">
         ${(Object.keys(DEFAULT_BINDINGS) as BindableAction[])
           .map((action) => {
             const keys = this.save.keys[action] ?? DEFAULT_BINDINGS[action];
             return `<div class="row"><label>${ACTION_LABELS[action]}</label>
               <button class="key" data-action="${action}">${keys.map((k) => escapeHtml(keyName(k))).join(' / ')}</button></div>`;
-          })
-          .join('')}
-      </div>
-      </div>
-      <div>
-      <p class="hint colhead">Player 2 on the keyboard, when two share this screen</p>
-      <div class="keygrid one">
-        ${(Object.keys(DEFAULT_SEAT_B) as BindableAction[])
-          .map((action) => {
-            const keys = this.save.keysB[action] ?? DEFAULT_SEAT_B[action];
-            return `<div class="row"><label>${ACTION_LABELS[action]}</label>
-              <button class="key" data-action="${action}" data-seat="b">${keys.map((k) => escapeHtml(keyName(k))).join(' / ')}</button></div>`;
           })
           .join('')}
       </div>
@@ -1474,18 +1429,15 @@ export class Menus {
           if (code && RESERVED_KEYS.has(code)) {
             keyNote.textContent = `${keyName(code)} is the game's own key and cannot be bound.`;
             keyNote.hidden = false;
-            const current = button.dataset.seat === 'b'
-              ? (this.save.keysB[action] ?? DEFAULT_SEAT_B[action as BindableAction])
-              : (this.save.keys[action] ?? DEFAULT_BINDINGS[action as BindableAction]);
+            const current = this.save.keys[action] ?? DEFAULT_BINDINGS[action as BindableAction];
             button.textContent = current.map((k) => keyName(k)).join(' / ');
             button.classList.remove('listening');
             return;
           }
-          if (code && button.dataset.seat === 'b') this.save.setKeyB(action, code, DEFAULT_SEAT_B, add);
-          else if (code) this.save.setKey(action, code, DEFAULT_BINDINGS, add);
+          if (code) this.save.setKey(action, code, DEFAULT_BINDINGS, add);
           this.callbacks.onKeys();
           this.renderOptions();
-          inner.querySelector<HTMLButtonElement>(`button.key[data-action="${action}"][data-seat="${button.dataset.seat ?? ''}"]`)?.focus();
+          inner.querySelector<HTMLButtonElement>(`button.key[data-action="${action}"]`)?.focus();
         };
         const onKey = (event: KeyboardEvent): void => {
           event.preventDefault();
@@ -1803,10 +1755,6 @@ export class Menus {
       this.show('title');
       return;
     }
-    if (result.versus) {
-      this.renderVersusDebrief(result, result.versus);
-      return;
-    }
     const delta = result.score - result.bestBefore;
     const line = result.practice ? null : this.save.recordLine(result.roomId, result.difficulty);
     // One run is the row beneath; the line earns its place from the second.
@@ -1877,31 +1825,6 @@ export class Menus {
       // The wave that ended the run, again, with what a preset would bank there;
       // a practice start counts for nothing and the debrief will say so.
       this.save.setStartLevel(result.level);
-      this.callbacks.onStart(result.roomId, this.selectedCharacter);
-    });
-    this.wireGoButtons(inner);
-    this.drawWatermark(inner.querySelector<HTMLCanvasElement>('.watermark')!);
-  }
-
-  /** A deathmatch ends with a winner, not a score: the original's "PLAYER n WINS". */
-  private renderVersusDebrief(result: RunResult, versus: RunResult['versus'] & object): void {
-    const winner = versus.winnerIndex >= 0 ? versus.names[versus.winnerIndex] ?? `Player ${versus.winnerIndex + 1}` : null;
-    const inner = this.shell(`
-      <canvas class="watermark"></canvas>
-      <div class="debrief">
-        <h2>${escapeHtml(result.roomName)}</h2>
-        <div class="sub" style="margin-bottom:0">deathmatch</div>
-        <div class="big" style="font-size:56px">${winner ? `${escapeHtml(winner)} wins` : 'draw'}</div>
-        <div class="stats">
-          ${versus.kills.map((k, i) => `<div>${escapeHtml(versus.names[i] ?? `Player ${i + 1}`)} <b>${k}</b></div>`).join('')}
-          <div>survived <b>${formatSeconds(result.seconds)}</b></div>
-        </div>
-        <button class="btn primary" id="again">Rematch</button>
-        <button class="btn secondary" data-go="rooms">Choose another room</button>
-        <button class="btn secondary" data-go="title">Main menu</button>
-      </div>
-    `);
-    inner.querySelector<HTMLButtonElement>('#again')!.addEventListener('click', () => {
       this.callbacks.onStart(result.roomId, this.selectedCharacter);
     });
     this.wireGoButtons(inner);

@@ -125,8 +125,7 @@ export class AudioEngine {
     if (name.startsWith('UI.')) {
       this.lastStart.set(name, now);
       if (name === 'UI.Hurt') {
-        // The hurt seat's own cue, at full level but from where they stand,
-        // so two seats on one screen can tell whose it was.
+        // The player's own cue, at full level but panned to where they stand.
         const panner = context.createStereoPanner();
         panner.pan.value = Math.max(-0.7, Math.min(0.7, (x - listener.x) / Math.max(1, listener.halfWidth)));
         panner.connect(master);

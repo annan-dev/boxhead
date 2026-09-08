@@ -8,7 +8,6 @@ import {
   multiplierForStart,
   tickMsFor,
   type ExtractedRoom,
-  type GameMode,
   type InputCommand,
   type WorldSnapshot,
 } from '@boxhead/shared';
@@ -24,34 +23,23 @@ export interface LocalOptions {
   devils: boolean;
   /** A parked run to pick up where it left off. */
   snapshot?: WorldSnapshot;
-  /** A second player on this screen, with their character. */
-  secondCharacterId?: string;
-  /** Co-op waves or head-to-head deathmatch; only with a second seat. */
-  mode?: GameMode;
   /** A practice start on this level instead of the preset's; the multiplier follows the presets' curve. */
   startLevel?: number;
 }
 
 export { multiplierForStart } from '@boxhead/shared';
 
-/** How far apart two players sharing one screen may get, in world pixels. */
-export const SHARED_SCREEN_TETHER = 520;
-
 export class LocalSession implements Session {
   readonly world: World;
   readonly room: ExtractedRoom;
   readonly localPlayerIndex = 0;
   readonly stepMs: number;
-  /** Only a co-op run leaves a score behind; a deathmatch leaves a winner. */
-  readonly recordsScores: boolean;
-  readonly mode: GameMode;
+  readonly recordsScores = true;
   /** The preset the run opened on, for the record it leaves behind. */
   readonly difficulty: string;
   readonly startLevel: number;
   /** The custom level the run opened on, or 0 when the preset decided. */
   readonly customStart: number;
-  /** Seats driven from this machine. */
-  readonly localSeats: number;
 
   constructor(options: LocalOptions) {
     this.room = options.room;
@@ -62,21 +50,15 @@ export class LocalSession implements Session {
     this.customStart = custom;
     const startMultiplier = custom ? multiplierForStart(custom) : difficulty.startMultiplier;
     const speed = GAME_SPEEDS.find((s) => s.id === options.gameSpeed) ?? GAME_SPEEDS[1]!;
-    const shared = options.secondCharacterId !== undefined;
-    this.localSeats = shared ? 2 : 1;
-    this.mode = shared && options.mode === 'deathmatch' ? 'deathmatch' : 'coop';
-    this.recordsScores = this.mode === 'coop';
     this.world = new World({
       room: options.room,
       seed: Date.now() & 0xffff,
-      playerCount: this.localSeats,
-      characters: shared ? [options.characterId, options.secondCharacterId!] : [options.characterId],
+      playerCount: 1,
+      characters: [options.characterId],
       startLevel: this.startLevel,
       startMultiplier,
       devils: options.devils,
       speedFactor: speed.factor,
-      mode: this.mode,
-      ...(shared ? { tether: SHARED_SCREEN_TETHER } : {}),
     });
     if (options.snapshot) this.world.restore(options.snapshot);
     // A fresh run above level 1, or one picked back up, is told what wave it is on.
@@ -97,11 +79,6 @@ export class LocalSession implements Session {
     const me = world.players[this.localPlayerIndex];
     const aim = input.aimWorld(camera, me?.x ?? 0, me?.y ?? 0);
     const commands: InputCommand[] = [input.buildCommand(aim.x, aim.y)];
-    if (this.localSeats === 2) {
-      const other = world.players[1];
-      const aimB = input.aimWorldB(other?.x ?? 0, other?.y ?? 0);
-      commands.push(input.buildCommandB(aimB.x, aimB.y));
-    }
     world.step(commands);
     for (const event of world.sounds) present.playSound(event);
     world.sounds.length = 0;

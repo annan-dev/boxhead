@@ -68,11 +68,8 @@ const SCENARIOS = {
   latency: `run(0, 'beginner'); return latency()`,
   // The widest room, so the camera has room to lean and the arena's edge does not clamp it.
   lead: `run(4, 'beginner'); return lead()`,
-  'shared-tips': `shared('coop'); run(0, 'beginner'); bot(200); return { tip: g.debugTip(1) }`,
+  tips: `run(0, 'beginner'); bot(200); return { tip: g.debugTip() }`,
   'low-health': `run(0, 'beginner'); bot(300); lowHealth(40)`,
-  'low-health-shared': `shared('coop'); run(0, 'beginner'); bot(300); lowHealth(40, 1)`,
-  'shared-coop': `shared('coop'); run(0, 'beginner'); await drive(['ArrowRight'], 60); bot(900); await drive(['ArrowLeft'], 40)`,
-  'shared-deathmatch': `shared('deathmatch'); run(0, 'beginner'); await drive(['ArrowUp'], 60); bot(300)`,
 };
 
 const HELPERS = `
@@ -153,9 +150,9 @@ const HELPERS = `
     g.loop.stop();
     return { lead0, lead50, lead100 };
   }
-  /** Drain a seat to a few points, and hold it there through the frame, so the heartbeat shows. */
-  function lowHealth(life, seat) {
-    const p = g.world.players[seat || 0];
+  /** Drain the player to a few points, and hold it there through the frame, so the heartbeat shows. */
+  function lowHealth(life) {
+    const p = g.world.players[0];
     p.life = life;
     p.invincible = 100000;
     // Land on a tick where the beat is up.
@@ -169,15 +166,6 @@ const HELPERS = `
     // live loop would step on and draw the trough before the capture.
     g.debugBot(0);
     g.loop.stop();
-  }
-  /** Two players on this screen, survive together or head to head. */
-  function shared(mode) { g.save.setSharedScreen(true); g.save.setSharedMode(mode); }
-  /** Hold keys for the second seat while the loop steps, so it walks. */
-  async function drive(codes, ticks) {
-    const ev = (type, code) => window.dispatchEvent(new KeyboardEvent(type, { code, key: code, bubbles: true }));
-    for (const c of codes) ev('keydown', c);
-    for (let i = 0; i < ticks; i++) g.loop.callbacks.step();
-    for (const c of codes) ev('keyup', c);
   }
   /** Play a difficulty with the bot until it dies or the tick limit, and say how it went. */
   function fairness(difficulty, roomIndex, maxTicks) {

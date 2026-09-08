@@ -153,27 +153,41 @@ export class GameRenderer {
 
   /**
    * A soft shadow on the floor beside every block, painted once. The blocks
-   * are drawn as flat boxes, and without something on the ground to anchor
-   * them they float; a little dark falling to the lower right seats them and
-   * gives the arena the depth its geometry already has.
+   * are drawn as boxes standing on their footprint, and without something on
+   * the ground to anchor them they float; a little dark falling to the lower
+   * right seats them.
+   *
+   * The shadow is the box's drawn silhouette (top face and front band, see
+   * `drawBlock`) nudged to the lower right and blurred, so it hugs the whole
+   * height of the box rather than starting partway down its side, and it has
+   * no hard edge anywhere. Every block goes into one path, so where two
+   * shadows meet, or a wall's shadow runs under the post beside it, the dark
+   * never doubles up.
    */
   private shadeBlocks(): void {
+    const blocks = this.world.map.blocks;
+    if (blocks.length === 0) return;
     const ctx = this.floorCtx;
+    const path = new Path2D();
+    for (const block of blocks) {
+      const rise = Math.max(8, block.rise);
+      // Taller blocks throw a slightly longer shadow.
+      const offset = Math.round(6 + rise * 0.14);
+      path.rect(block.x + offset, block.y - rise + offset, block.w, block.h + rise);
+    }
     ctx.save();
-    for (const block of this.world.map.blocks) {
-      const spread = Math.max(10, Math.min(22, block.rise * 0.9));
-      // Right edge.
-      let g = ctx.createLinearGradient(block.x + block.w, 0, block.x + block.w + spread, 0);
-      g.addColorStop(0, 'rgba(20,14,8,0.28)');
-      g.addColorStop(1, 'rgba(20,14,8,0)');
-      ctx.fillStyle = g;
-      ctx.fillRect(block.x + block.w, block.y + 4, spread, block.h + spread * 0.6);
-      // Bottom edge.
-      g = ctx.createLinearGradient(0, block.y + block.h, 0, block.y + block.h + spread);
-      g.addColorStop(0, 'rgba(20,14,8,0.3)');
-      g.addColorStop(1, 'rgba(20,14,8,0)');
-      ctx.fillStyle = g;
-      ctx.fillRect(block.x + 4, block.y + block.h, block.w + spread * 0.6, spread);
+    ctx.fillStyle = 'rgba(20,14,8,0.34)';
+    if (typeof ctx.filter === 'string') {
+      ctx.filter = 'blur(5px)';
+      ctx.fill(path);
+    } else {
+      // No canvas filters: three ever-fainter passes stand in for the blur.
+      for (let i = 0; i < 3; i++) {
+        ctx.fillStyle = `rgba(20,14,8,${0.13 - i * 0.03})`;
+        ctx.translate(-i * 2, -i * 2);
+        ctx.fill(path);
+        ctx.translate(i * 2, i * 2);
+      }
     }
     ctx.restore();
   }

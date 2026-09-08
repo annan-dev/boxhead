@@ -39,6 +39,17 @@ unless a whole feature that was absent (scored 3 or less) has been added.
 | 11 | Multiplayer | 0.7 | Lobby flow, prediction quality, reconnect, deathmatch and co-op rules, clarity of who is who. |
 | 12 | Accessibility and options | 0.6 | Rebinding or alternate keys, gamepad, volume controls, colour choices, text size, pause anywhere, settings persist. |
 
+## Out of scope, by the owner's decision
+
+These are not gaps to fill. Do not propose them as fixes, do not score their
+absence, and do not add them back:
+
+- **Local two-player on one screen.** No second seat on the keyboard or pad, no
+  shared-screen camera or tether, no per-seat HUD strips, tips or heartbeat, no
+  room-screen toggle, no local deathmatch. Playing together is online only
+  (the lobby, co-op and deathmatch over a server). This was added in loops
+  9-14 and removed on 2026-09-08 at the owner's request.
+
 ## Procedure
 
 1. Read the previous entry in `SCORES.md` and the commits since it (`git log`).

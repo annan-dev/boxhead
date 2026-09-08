@@ -143,23 +143,6 @@ export function keyName(code: string): string {
   return code.replace(/([a-z])([A-Z])/g, '$1 $2');
 }
 
-/**
- * The second seat's keys when two people share one keyboard: arrows move,
- * Enter or right Shift fires, comma and full stop cycle. Not rebindable.
- */
-export const DEFAULT_SEAT_B: Bindings = {
-  up: ['ArrowUp'],
-  down: ['ArrowDown'],
-  left: ['ArrowLeft'],
-  right: ['ArrowRight'],
-  fire: ['Enter', 'ShiftRight', 'Numpad0'],
-  next: ['Period', 'NumpadAdd'],
-  prev: ['Comma', 'NumpadSubtract'],
-  pause: ['Backspace'],
-};
-const ARROWS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
-let SEAT_B: Bindings = DEFAULT_SEAT_B;
-
 const MOVE_DIRECTIONS: Record<'up' | 'down' | 'left' | 'right', [number, number]> = {
   up: [0, -1],
   down: [0, 1],
@@ -212,19 +195,7 @@ export class Input {
   private bindings: Bindings = DEFAULT_BINDINGS;
   /** Key code to action, rebuilt whenever the bindings change. */
   private keyToAction = new Map<string, BindableAction>();
-  /** Seats driven from this machine: one, or two sharing the screen. */
-  private localPlayers = 1;
   private pad: PadBindings = DEFAULT_PAD;
-
-  /** Install the second seat's keys; an empty action keeps its default. */
-  setSeatBBindings(bindings: Partial<Bindings>): void {
-    const merged = { ...DEFAULT_SEAT_B } as Bindings;
-    for (const action of Object.keys(DEFAULT_SEAT_B) as BindableAction[]) {
-      const keys = bindings[action];
-      if (keys && keys.length > 0) merged[action] = keys;
-    }
-    SEAT_B = merged;
-  }
 
   /** Install the pad's bindings; an empty action keeps its default. */
   setPadBindings(bindings: Partial<Record<PadAction, number[]>>): void {
@@ -235,27 +206,6 @@ export class Input {
     }
     this.pad = merged;
   }
-  /** The second seat's edge-triggered presses. */
-  private latchB = { next: false, prev: false };
-  /** The second seat faces the way it last walked when it has no stick. */
-  private facingBX = 1;
-  private facingBY = 0;
-
-  /**
-   * One or two players on this screen. With two, the pad belongs to the
-   * second seat (or arrows and Enter when there is no pad) and the arrows
-   * stop doubling as the first seat's movement keys.
-   */
-  setLocalPlayers(count: number): void {
-    this.localPlayers = count >= 2 ? 2 : 1;
-    this.latchB = { next: false, prev: false };
-  }
-
-  /** Which seat the pad drives. */
-  private get padSeat(): number {
-    return this.localPlayers === 2 ? 1 : 0;
-  }
-
   /** Install a binding set; unknown or empty actions fall back to the defaults. */
   setBindings(bindings: Partial<Bindings>): void {
     const merged = { ...DEFAULT_BINDINGS } as Bindings;
@@ -273,11 +223,6 @@ export class Input {
   /** The move keys currently bound to an action, for the hint text. */
   keysFor(action: BindableAction): string[] {
     return this.bindings[action];
-  }
-
-  /** The second seat's keys for an action, for its own hints. */
-  seatBKeys(action: BindableAction): string[] {
-    return SEAT_B[action];
   }
 
   /** True while the pad, not the mouse, owns the aim. */
@@ -333,9 +278,8 @@ export class Input {
   private readonly onKeyDown = (event: KeyboardEvent): void => {
     if (event.repeat || !this.enabled) return;
     // The game owns these keys; let everything else through.
-    const seatB = this.localPlayers === 2 && this.seatBAction(event.code);
-    const action = seatB ? undefined : this.seatAAction(event.code);
-    if (action || seatB || event.code in SLOT_KEYS) event.preventDefault();
+    const action = this.keyToAction.get(event.code);
+    if (action || event.code in SLOT_KEYS) event.preventDefault();
     this.down.add(event.code);
 
     const slot = SLOT_KEYS[event.code];
@@ -343,30 +287,10 @@ export class Input {
     if (action === 'next') this.pendingNext = true;
     if (action === 'prev') this.pendingPrev = true;
     if (action === 'pause') this.pausePressed = true;
-    if (seatB === 'next') this.latchB.next = true;
-    if (seatB === 'prev') this.latchB.prev = true;
-    if (seatB === 'pause') this.pausePressed = true;
   };
 
-  /** The first seat's action for a key; arrows are the second seat's when it exists. */
-  private seatAAction(code: string): BindableAction | undefined {
-    if (this.localPlayers === 2 && (ARROWS.has(code) || this.seatBAction(code))) return undefined;
-    return this.keyToAction.get(code);
-  }
-
-  private seatBAction(code: string): BindableAction | undefined {
-    for (const action of Object.keys(SEAT_B) as BindableAction[]) {
-      if (SEAT_B[action].includes(code)) return action;
-    }
-    return undefined;
-  }
-
-  private seatAHeld(action: BindableAction): boolean {
-    return this.bindings[action].some((code) => this.down.has(code) && this.seatAAction(code) === action);
-  }
-
-  private seatBHeld(action: BindableAction): boolean {
-    return SEAT_B[action].some((code) => this.down.has(code));
+  private held(action: BindableAction): boolean {
+    return this.bindings[action].some((code) => this.down.has(code) && this.keyToAction.get(code) === action);
   }
 
   /** Hand the keyboard to the menus, or take it back for play. */
@@ -408,7 +332,6 @@ export class Input {
     this.pendingPrev = false;
     this.pausePressed = false;
     this.menuPressed = false;
-    this.latchB = { next: false, prev: false };
   }
 
   private readonly onKeyUp = (event: KeyboardEvent): void => {
@@ -434,7 +357,7 @@ export class Input {
     if (!code) return;
     event.preventDefault();
     this.down.add(code);
-    const action = this.seatAAction(code);
+    const action = this.keyToAction.get(code);
     if (action === 'next') this.pendingNext = true;
     if (action === 'prev') this.pendingPrev = true;
     if (action === 'pause') this.pausePressed = true;
@@ -495,15 +418,8 @@ export class Input {
       const fireHeld = this.pad.fire.some((b) => now.has(b));
       if (!fireHeld) this.padFireLatched = false;
       this.padFire = fireHeld && !this.padFireLatched;
-      const latch = this.padSeat === 1 ? this.latchB : null;
-      if (this.pad.next.some(rose)) {
-        if (latch) latch.next = true;
-        else this.pendingNext = true;
-      }
-      if (this.pad.prev.some(rose)) {
-        if (latch) latch.prev = true;
-        else this.pendingPrev = true;
-      }
+      if (this.pad.next.some(rose)) this.pendingNext = true;
+      if (this.pad.prev.some(rose)) this.pendingPrev = true;
       if (this.pad.menu.some(rose)) this.menuPressed = true;
     }
     if (this.pad.pause.some(rose)) this.pausePressed = true;
@@ -520,59 +436,10 @@ export class Input {
     playerY: number,
   ): { x: number; y: number } {
     this.pollGamepad();
-    if (this.padAims && this.padSeat === 0) {
+    if (this.padAims) {
       return { x: playerX + this.padAimX * PAD_AIM_REACH, y: playerY + this.padAimY * PAD_AIM_REACH };
     }
     return camera.screenToWorld(this.pointerX, this.pointerY);
-  }
-
-  /**
-   * The second seat's aim: the pad's right stick when it has one, otherwise
-   * the way it is walking or last walked, as the original's keyboard players
-   * aimed. Call after `aimWorld` each step so the pad has been polled.
-   */
-  aimWorldB(playerX: number, playerY: number): { x: number; y: number } {
-    if (this.padSeat === 1 && firstGamepad()) {
-      if (this.padAimX !== 0 || this.padAimY !== 0) {
-        return { x: playerX + this.padAimX * PAD_AIM_REACH, y: playerY + this.padAimY * PAD_AIM_REACH };
-      }
-    } else {
-      let mx = 0;
-      let my = 0;
-      if (this.seatBHeld('up')) my -= 1;
-      if (this.seatBHeld('down')) my += 1;
-      if (this.seatBHeld('left')) mx -= 1;
-      if (this.seatBHeld('right')) mx += 1;
-      if (mx !== 0 || my !== 0) {
-        const length = Math.hypot(mx, my);
-        this.facingBX = mx / length;
-        this.facingBY = my / length;
-      }
-    }
-    return { x: playerX + this.facingBX * PAD_AIM_REACH, y: playerY + this.facingBY * PAD_AIM_REACH };
-  }
-
-  /** The second seat's command: its keys, or the pad when there are two players. */
-  buildCommandB(aimX: number, aimY: number): InputCommand {
-    const command = emptyCommand();
-    if (this.padSeat === 1 && firstGamepad()) {
-      command.moveX = this.padMoveX;
-      command.moveY = this.padMoveY;
-      command.fire = this.padFire;
-    } else {
-      if (this.seatBHeld('up')) command.moveY -= 1;
-      if (this.seatBHeld('down')) command.moveY += 1;
-      if (this.seatBHeld('left')) command.moveX -= 1;
-      if (this.seatBHeld('right')) command.moveX += 1;
-      command.fire = this.seatBHeld('fire');
-    }
-    command.aimX = aimX;
-    command.aimY = aimY;
-    command.nextWeapon = this.latchB.next;
-    command.prevWeapon = this.latchB.prev;
-    this.latchB.next = false;
-    this.latchB.prev = false;
-    return command;
   }
 
   private updatePointer(event: PointerEvent): void {
@@ -608,21 +475,20 @@ export class Input {
   buildCommand(aimX: number, aimY: number): InputCommand {
     const command = emptyCommand();
     for (const direction of Object.keys(MOVE_DIRECTIONS) as Array<keyof typeof MOVE_DIRECTIONS>) {
-      if (!this.seatAHeld(direction)) continue;
+      if (!this.held(direction)) continue;
       const [dx, dy] = MOVE_DIRECTIONS[direction];
       command.moveX += dx;
       command.moveY += dy;
     }
     command.moveX = Math.max(-1, Math.min(1, command.moveX));
     command.moveY = Math.max(-1, Math.min(1, command.moveY));
-    const padHere = this.padSeat === 0;
-    if (padHere && command.moveX === 0 && command.moveY === 0) {
+    if (command.moveX === 0 && command.moveY === 0) {
       command.moveX = this.padMoveX;
       command.moveY = this.padMoveY;
     }
     command.aimX = aimX;
     command.aimY = aimY;
-    command.fire = this.pointerDown || this.seatAHeld('fire') || (padHere && this.padFire);
+    command.fire = this.pointerDown || this.held('fire') || this.padFire;
     command.weaponSlot = this.pendingSlot;
     command.nextWeapon = this.pendingNext;
     command.prevWeapon = this.pendingPrev;

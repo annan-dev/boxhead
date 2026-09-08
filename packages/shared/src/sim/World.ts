@@ -127,13 +127,8 @@ export interface WorldOptions {
   startMultiplier?: number;
   /** The original's Devils On/Off option; off, no devil ever spawns. */
   devils?: boolean;
-  /** Co-op waves or two-player deathmatch; see `MODES`. Default co-op. */
+  /** Co-op waves or deathmatch; see `MODES`. Default co-op. */
   mode?: GameMode;
-  /**
-   * Shared-screen play: the farthest apart two living players may get, in
-   * pixels, so neither can walk off the one camera. Unset for no limit.
-   */
-  tether?: number;
   /**
    * The game speed setting as a factor on the logic rate (0.5, 1, 2). The
    * caller steps the world faster or slower; the original also re-read the
@@ -244,7 +239,6 @@ export class World {
   private pendingAffects: PendingAffect[] = [];
   private readonly devilsActive: boolean;
   private readonly speedFactor: number;
-  private readonly tether: number;
 
   constructor(options: WorldOptions) {
     this.map = new GameMap(options.room);
@@ -259,7 +253,6 @@ export class World {
     this.devilSpawnTimer = this.levelInfo.devilSpawnRate;
     this.multiplierTicks = this.multiplierTicksFor(1);
 
-    this.tether = options.tether ?? 0;
     const count = options.playerCount ?? 1;
     for (let i = 0; i < count; i++) {
       this.navs.push(new MapNav(this.map));
@@ -932,7 +925,6 @@ export class World {
       const dy = command.moveY;
       player.vx = dx * speed;
       player.vy = dy * speed;
-      if (this.tether > 0) this.holdTether(player);
       player.moving = Math.hypot(dx, dy) > 0.01;
       if (player.moving) player.animStep += 1;
 
@@ -947,35 +939,6 @@ export class World {
       this.applyWeaponSwitch(player, command);
       this.applyFire(player, command);
     }
-  }
-
-  /**
-   * Shared screen: a player at the tether's length from the nearest living
-   * teammate cannot move farther away, only along or back. The component of
-   * the step that would stretch the tether is dropped.
-   */
-  private holdTether(player: Player): void {
-    let other: Player | null = null;
-    let best = Infinity;
-    for (const p of this.players) {
-      if (p === player || p.state !== 'alive' || !p.connected) continue;
-      const d = distanceSq(p.x, p.y, player.x, player.y);
-      if (d < best) {
-        best = d;
-        other = p;
-      }
-    }
-    if (!other) return;
-    const nx = player.x + player.vx;
-    const ny = player.y + player.vy;
-    const after = Math.hypot(nx - other.x, ny - other.y);
-    if (after <= this.tether || after * after <= best) return;
-    const ax = (player.x - other.x) / Math.sqrt(best || 1);
-    const ay = (player.y - other.y) / Math.sqrt(best || 1);
-    const outward = player.vx * ax + player.vy * ay;
-    if (outward <= 0) return;
-    player.vx -= ax * outward;
-    player.vy -= ay * outward;
   }
 
   /**

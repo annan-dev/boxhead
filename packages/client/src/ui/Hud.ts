@@ -48,33 +48,26 @@ export class Hud {
   private lastLevel = 0;
   /** Player's HUD size preference, 0.8-1.4. */
   sizeScale = 1;
-  /** Seats driven from this screen, each of which gets a weapon strip. */
-  localSeats = 1;
   /** Outlined markers and a framed heartbeat, so nothing rests on colour alone. */
   highContrast = false;
   /** Partner rings drawn on the last frame, for the harness. */
   partnerMarkers = 0;
-  /** Where the weapon strips ended up this frame, so markers can keep clear. */
+  /** Where the weapon strip ended up this frame, so markers can keep clear. */
   private stripExtents: Array<{ left: number; right: number; top: number }> = [];
 
   /**
-   * Lay a strip out for a seat: how wide each slot can be so the whole
-   * arsenal fits its half of the screen (or the whole of it), and where it
-   * sits. One place, so the drawing and the tests agree.
+   * Lay the strip out: how wide each slot can be so the whole arsenal fits
+   * the screen, and where it sits. One place, so the drawing and the tests
+   * agree.
    */
   static layoutStrip(
     canvasWidth: number,
     s: number,
     slots: number,
-    side: number,
   ): { slotWidth: number; gap: number; left: number; width: number; centre: number } {
-    const centre = side === 0 ? canvasWidth / 2 : canvasWidth * (side < 0 ? 0.27 : 0.73);
-    // The room a strip has: twice the distance to whichever is nearer, the
-    // screen edge or the middle line, less a margin, so two never cross.
-    const room = side === 0
-      ? canvasWidth - 24 * s
-      : 2 * Math.min(centre, Math.abs(canvasWidth / 2 - centre)) - 16 * s;
-    const natural = (side === 0 ? 64 : 52) * s;
+    const centre = canvasWidth / 2;
+    const room = canvasWidth - 24 * s;
+    const natural = 64 * s;
     const gap = 5 * s;
     const slotWidth = Math.max(30 * s, Math.min(natural, (room - (slots - 1) * gap) / Math.max(1, slots)));
     const width = slots * slotWidth + (slots - 1) * gap;
@@ -85,7 +78,7 @@ export class Hud {
     private readonly world: World,
     /** Whose weapons and ammo the strip along the bottom shows. */
     private readonly localPlayerIndex = 0,
-    /** Name over a seat, for networked play; null draws nothing. */
+    /** Name over a player, for networked play; null draws nothing. */
     private readonly nameOf: (playerIndex: number) => string | null = () => null,
   ) {
     this.lastMultiplier = world.multiplier;
@@ -113,12 +106,7 @@ export class Hud {
     this.lastLevel = world.level;
 
     const player = world.players[this.localPlayerIndex];
-    // Every seat on this screen that is low beats, each on its own side.
-    for (let seat = 0; seat < Math.max(1, this.localSeats); seat++) {
-      const local = world.players[seat === 0 ? this.localPlayerIndex : seat];
-      if (!local || local.state !== 'alive') continue;
-      this.drawLowHealth(ctx, local, this.localSeats >= 2 ? camera.worldToScreen(local.x, local.y).x : null);
-    }
+    if (player && player.state === 'alive') this.drawLowHealth(ctx, player);
 
     this.stripExtents.length = 0;
     this.drawPopups(ctx, camera, scale);
@@ -127,22 +115,9 @@ export class Hud {
       this.drawHealth(ctx, camera, other, scale);
       if (other.index !== this.localPlayerIndex) this.drawName(ctx, camera, other, scale);
     }
-    for (let seat = 0; seat < Math.max(1, this.localSeats); seat++) {
-      const local = world.players[seat === 0 ? this.localPlayerIndex : seat];
-      if (local && local.state === 'alive') this.drawThreatMarkers(ctx, camera, local, scale);
-    }
+    if (player && player.state === 'alive') this.drawThreatMarkers(ctx, camera, player, scale);
     if (player && pointer) this.drawReticle(ctx, player, pointer, scale);
-    if (this.localSeats >= 2) {
-      const second = world.players[1];
-      if (second && second.state === 'alive') this.drawFacing(ctx, camera, second, scale);
-    }
-    if (this.localSeats >= 2) {
-      const second = world.players[1];
-      if (player) this.drawWeapons(ctx, player, scale, -1, 'P1');
-      if (second) this.drawWeapons(ctx, second, scale, 1, 'P2');
-    } else if (player) {
-      this.drawWeapons(ctx, player, scale);
-    }
+    if (player) this.drawWeapons(ctx, player, scale);
     this.drawScore(ctx, scale);
     this.drawMessages(ctx, scale);
     this.lastStripExtents = this.stripExtents.map((e) => ({ ...e }));
@@ -167,28 +142,6 @@ export class Hud {
     ctx.fillText(value, x + 1 * s, y + 1.5 * s);
     ctx.fillStyle = color;
     ctx.fillText(value, x, y);
-  }
-
-  /**
-   * The second seat aims the way it walks and has no pointer, so a short
-   * bone tick past the gun says where its shots will go.
-   */
-  private drawFacing(ctx: CanvasRenderingContext2D, camera: Camera, player: Player, s: number): void {
-    const at = camera.worldToScreen(player.x, player.y - 10);
-    const reach = 26 * camera.zoom;
-    const cos = Math.cos(player.angle);
-    const sin = Math.sin(player.angle);
-    ctx.save();
-    ctx.lineCap = 'round';
-    for (const pass of [0, 1]) {
-      ctx.lineWidth = (pass === 0 ? 4 : 2) * s;
-      ctx.strokeStyle = pass === 0 ? 'rgba(0,0,0,0.5)' : 'rgba(233,226,208,0.85)';
-      ctx.beginPath();
-      ctx.moveTo(at.x + cos * reach, at.y + sin * reach);
-      ctx.lineTo(at.x + cos * (reach + 9 * s), at.y + sin * (reach + 9 * s));
-      ctx.stroke();
-    }
-    ctx.restore();
   }
 
   /**
@@ -219,7 +172,7 @@ export class Hud {
     return Math.max(pulse(0, 1), pulse(0.25, 0.55));
   }
 
-  private drawLowHealth(ctx: CanvasRenderingContext2D, player: Player, seatX: number | null = null): void {
+  private drawLowHealth(ctx: CanvasRenderingContext2D, player: Player): void {
     const ratio = player.life / player.maxLife;
     if (ratio > 0.3) return;
     const urgency = 1 - ratio / 0.3;
@@ -227,9 +180,7 @@ export class Hud {
     const strength = (0.3 + urgency * 0.3) * beat;
     if (strength <= 0.01) return;
     const { width, height } = ctx.canvas;
-    // On a shared screen the beat centres on the hurt seat's side, so the
-    // other player knows it is not theirs.
-    const cx = seatX === null ? width / 2 : Math.max(width * 0.25, Math.min(width * 0.75, seatX));
+    const cx = width / 2;
     const gradient = ctx.createRadialGradient(
       cx, height / 2, Math.min(width, height) * 0.28,
       cx, height / 2, Math.max(width, height) * 0.58,
@@ -243,11 +194,8 @@ export class Hud {
       // A frame that thickens with the beat: a shape, for eyes the red alone does not reach.
       const border = (4 + beat * 8) * Math.max(1, height / 620);
       ctx.fillStyle = `rgba(255,255,255,${0.35 + beat * 0.45})`;
-      // With two seats the frame covers the hurt seat's half only.
-      const left = seatX === null ? 0 : seatX < width / 2 ? 0 : width / 2;
-      const span = seatX === null ? width : width / 2;
-      ctx.fillRect(left, 0, span, border);
-      ctx.fillRect(left, height - border, span, border);
+      ctx.fillRect(0, 0, width, border);
+      ctx.fillRect(0, height - border, width, border);
       ctx.fillRect(0, 0, border, height);
       ctx.fillRect(width - border, 0, border, height);
     }
@@ -452,28 +400,15 @@ export class Hud {
     }
   }
 
-  private drawWeapons(
-    ctx: CanvasRenderingContext2D,
-    player: Player,
-    s: number,
-    /** -1 left half, 1 right half, 0 centred: where a shared screen's strips go. */
-    side = 0,
-    label = '',
-  ): void {
+  private drawWeapons(ctx: CanvasRenderingContext2D, player: Player, s: number): void {
     const slots = WEAPON_ORDER.filter((id) => player.weapons.get(id)?.unlocked);
-    // A full arsenal must still fit a narrow window, or half of one.
-    const layout = Hud.layoutStrip(ctx.canvas.width, s, slots.length, side);
-    const { slotWidth, gap, centre } = layout;
+    // A full arsenal must still fit a narrow window.
+    const layout = Hud.layoutStrip(ctx.canvas.width, s, slots.length);
+    const { slotWidth, gap } = layout;
     const slotHeight = 34 * s;
     let x = layout.left;
     const y = ctx.canvas.height - 16 * s - slotHeight;
     this.stripExtents.push({ left: layout.left, right: layout.left + layout.width, top: y - 12 * s });
-    if (label) {
-      ctx.font = `700 ${9 * s}px ${BODY}`;
-      ctx.textAlign = 'center';
-      this.text(ctx, label, centre, y - 6 * s, BRASS_BRIGHT, s);
-      ctx.textAlign = 'left';
-    }
 
     for (const id of slots) {
       const slot = player.weapons.get(id)!;

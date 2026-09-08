@@ -10,11 +10,6 @@ npm run dev                           # http://localhost:5173
 npm start                             # a multiplayer server on :8787
 ```
 
-Playing together on one screen, as the original's 2Play did: tick **two
-players on this screen** when choosing a room. Player 2 takes the gamepad, or
-the arrow keys with Enter to fire, and the two of you share one screen, one
-score and one multiplier, never more than a screen apart.
-
 Playing together online: one person runs `npm start` and shares the address the
 server prints, everyone else opens the game, picks **Multiplayer**, and types
 it in, the way a Minecraft server works. See [Multiplayer](#multiplayer).
@@ -22,7 +17,7 @@ it in, the way a Minecraft server works. See [Multiplayer](#multiplayer).
 **Controls** — `WASD` move, mouse aim, click or `space` fire, `1`-`0` weapons,
 `Q`/`E` or mouse wheel cycle, `P` quick pause, `Esc` pause menu (resume, restart, options,
 quit), `R` restart while paused, `M` mute, `F3` stats. Every key but the weapon numbers can be
-rebound in Options, for the second seat too, and so can the gamepad's buttons. A standard
+rebound in Options, and so can the gamepad's buttons. A standard
 gamepad works everywhere: sticks move and aim, trigger fires, bumpers cycle, Start pauses,
 B or Y opens the menu, d-pad and A drive the menus.
 

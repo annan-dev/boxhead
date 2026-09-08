@@ -83,22 +83,14 @@ test('a custom start level marks the run as practice', () => {
   assert.equal(save.countsForHighScores, true);
 });
 
-test('the second seat and the pad rebind without stepping on each other, and reset together', () => {
+test('the pad rebinds without a button serving two actions, and resets with the keys', () => {
   const save = new SaveData();
-  const seatB = { up: ['ArrowUp'], fire: ['Enter', 'ShiftRight'], pause: ['Backspace'] };
-  save.setKeyB('pause', 'Enter', seatB);
-  assert.deepEqual(save.keysB['pause'], ['Enter']);
-  assert.deepEqual(save.keysB['fire'], ['ShiftRight'], 'the key was taken from fire');
-  save.setKeyB('fire', 'KeyL', seatB, true);
-  assert.deepEqual(save.keysB['fire'], ['ShiftRight', 'KeyL'], 'shift-click adds beside the first');
-
   const pad = { fire: [7, 0], next: [5], prev: [4], menu: [1, 3], pause: [9] };
   save.setPadButton('next', 0, pad);
   assert.deepEqual(save.pad['next'], [0]);
   assert.deepEqual(save.pad['fire'], [7], 'A was taken from fire');
 
   save.resetKeys();
-  assert.deepEqual(save.keysB, {});
   assert.deepEqual(save.pad, {});
   assert.deepEqual(save.keys, {});
 });

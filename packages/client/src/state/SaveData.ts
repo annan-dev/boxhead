@@ -21,9 +21,6 @@ export interface SavedRun {
   devils: boolean;
   countsForHighScores: boolean;
   practiceReason: string | null;
-  /** The second seat's character when the run was shared-screen. */
-  secondCharacterId?: string;
-  mode?: 'coop' | 'deathmatch';
   /** A custom start level the run opened on, or 0. */
   startLevel?: number;
   /** The world, as `World.snapshot()` wrote it. */
@@ -107,20 +104,12 @@ export interface SaveState {
   keys?: Record<string, string[]> | undefined;
   /** Gamepad buttons by action; absent actions use the defaults. */
   pad?: Record<string, number[]> | undefined;
-  /** The second seat's keys by action; absent actions use the defaults. */
-  keysB?: Record<string, string[]> | undefined;
   /** One-time tips already shown. */
   tipsSeen?: string[] | undefined;
   /** Whether the one-time tips show at all. */
   tips?: boolean | undefined;
   /** The last few runs, newest first. */
   history?: RunEntry[] | undefined;
-  /** Two players on this screen. */
-  sharedScreen?: boolean | undefined;
-  /** The second player's character. */
-  secondCharacterId?: string | undefined;
-  /** Shared screen: survive together, or head to head. */
-  sharedMode?: 'coop' | 'deathmatch' | undefined;
   /** A custom starting level for practice; 0 means the difficulty preset decides. */
   startLevel?: number | undefined;
   /** The Options tab last opened. */
@@ -301,33 +290,6 @@ export class SaveData {
     return this.state.tips ?? true;
   }
 
-  get sharedScreen(): boolean {
-    return this.state.sharedScreen ?? false;
-  }
-
-  setSharedScreen(value: boolean): void {
-    this.state.sharedScreen = value;
-    this.persist();
-  }
-
-  get secondCharacterId(): string {
-    return this.state.secondCharacterId ?? 'bond';
-  }
-
-  get sharedMode(): 'coop' | 'deathmatch' {
-    return this.state.sharedMode ?? 'coop';
-  }
-
-  setSharedMode(mode: 'coop' | 'deathmatch'): void {
-    this.state.sharedMode = mode;
-    this.persist();
-  }
-
-  setSecondCharacter(id: string): void {
-    this.state.secondCharacterId = id;
-    this.persist();
-  }
-
   setTips(value: boolean): void {
     this.state.tips = value;
     this.persist();
@@ -398,24 +360,6 @@ export class SaveData {
   resetKeys(): void {
     delete this.state.keys;
     delete this.state.pad;
-    delete this.state.keysB;
-    this.persist();
-  }
-
-  get keysB(): Record<string, string[]> {
-    return this.state.keysB ?? {};
-  }
-
-  /** Bind one of the second seat's actions to a key, replacing or adding beside it. */
-  setKeyB(action: string, code: string, defaults: Record<string, string[]>, add = false): void {
-    const keys = { ...this.keysB };
-    for (const other of Object.keys(defaults)) {
-      const current = keys[other] ?? defaults[other] ?? [];
-      keys[other] = current.filter((c) => c !== code);
-    }
-    const kept = add ? (keys[action] ?? []) : [];
-    keys[action] = [...kept.filter((c) => c !== code), code].slice(-2);
-    this.state.keysB = keys;
     this.persist();
   }
 
