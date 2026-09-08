@@ -149,7 +149,9 @@ const STYLE = `
   .menu .bg::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 30px;
               background: linear-gradient(#3a1a0e, #23100a); border-top: 3px solid #5d2413;
               box-shadow: 0 -12px 30px rgba(224,17,31,.18); }
-  .menu.overlay .bg { background: rgba(4,4,6,.74); }
+  /* The pause screen sits over the frozen arena rather than hiding it. */
+  .menu.overlay { background: transparent; }
+  .menu.overlay .bg { background: rgba(4,4,6,.72); backdrop-filter: blur(2px); }
   .menu.overlay .bg::before { display: none; }
   .menu.overlay .bg::after { top: 0; bottom: auto; height: 42px;
               background: linear-gradient(#8b1a12, #5a0d0a); border-top: 0; border-bottom: 3px solid #2a0605;
