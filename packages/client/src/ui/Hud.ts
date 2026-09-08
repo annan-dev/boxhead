@@ -81,6 +81,7 @@ export class Hud {
       this.drawHealth(ctx, camera, other, scale);
       if (other.index !== this.localPlayerIndex) this.drawName(ctx, camera, other, scale);
     }
+    if (player && player.state === 'alive') this.drawThreatMarkers(ctx, camera, player, scale);
     if (player) this.drawWeapons(ctx, player, scale);
     this.drawScore(ctx, scale);
     this.drawMessages(ctx, scale);
@@ -129,6 +130,70 @@ export class Hud {
     gradient.addColorStop(1, `rgba(150,0,0,${strength})`);
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, width, height);
+  }
+
+  /**
+   * Chevrons along the screen edge pointing at enemies that are out of view,
+   * so a large arena cannot hide where the wave is coming from. One marker
+   * per direction, sized by how near the closest thing that way is, and a
+   * devil's marker burns orange because it is the one to deal with first.
+   */
+  private drawThreatMarkers(ctx: CanvasRenderingContext2D, camera: Camera, player: Player, s: number): void {
+    const { width, height } = ctx.canvas;
+    const buckets = 24;
+    const nearest: Array<{ d: number; angle: number; devil: boolean } | null> = new Array(buckets).fill(null);
+    const at = camera.worldToScreen(player.x, player.y);
+    const margin = 26 * s;
+    let any = false;
+    for (const enemy of this.world.enemies) {
+      if (enemy.state !== 'alive') continue;
+      const screen = camera.worldToScreen(enemy.x, enemy.y);
+      if (screen.x > -10 && screen.x < width + 10 && screen.y > -10 && screen.y < height + 10) continue;
+      const dx = enemy.x - player.x;
+      const dy = enemy.y - player.y;
+      const d = Math.hypot(dx, dy);
+      const angle = Math.atan2(dy, dx);
+      const bucket = ((Math.round((angle / (Math.PI * 2)) * buckets) % buckets) + buckets) % buckets;
+      const devil = enemy.defId === 'devil';
+      const current = nearest[bucket];
+      if (!current || d < current.d || (devil && !current.devil)) nearest[bucket] = { d, angle, devil };
+      any = true;
+    }
+    if (!any) return;
+
+    ctx.save();
+    ctx.lineJoin = 'round';
+    for (const marker of nearest) {
+      if (!marker) continue;
+      // Slide the marker along the ray from the player until it meets the
+      // inset screen rectangle.
+      const cos = Math.cos(marker.angle);
+      const sin = Math.sin(marker.angle);
+      const tx = cos > 0 ? (width - margin - at.x) / cos : cos < 0 ? (margin - at.x) / cos : Infinity;
+      const ty = sin > 0 ? (height - margin - at.y) / sin : sin < 0 ? (margin - at.y) / sin : Infinity;
+      const t = Math.max(0, Math.min(tx, ty));
+      const x = at.x + cos * t;
+      const y = at.y + sin * t;
+      // Close threats draw bigger and brighter; far ones fade toward the edge.
+      const near = Math.max(0, Math.min(1, 1 - (marker.d - 200) / 900));
+      const size = (7 + near * 6) * s;
+      const alpha = 0.35 + near * 0.55;
+      ctx.translate(x, y);
+      ctx.rotate(marker.angle);
+      ctx.beginPath();
+      ctx.moveTo(size, 0);
+      ctx.lineTo(-size * 0.7, -size * 0.75);
+      ctx.lineTo(-size * 0.3, 0);
+      ctx.lineTo(-size * 0.7, size * 0.75);
+      ctx.closePath();
+      ctx.fillStyle = marker.devil ? `rgba(255,140,40,${alpha})` : `rgba(224,17,31,${alpha})`;
+      ctx.strokeStyle = `rgba(0,0,0,${alpha * 0.8})`;
+      ctx.lineWidth = 1.5 * s;
+      ctx.fill();
+      ctx.stroke();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+    }
+    ctx.restore();
   }
 
   /** Another player's name under their health bar. */
