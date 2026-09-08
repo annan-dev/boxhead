@@ -1274,7 +1274,7 @@ export class Menus {
       </div>
       </div>
       </div>
-      <button class="btn secondary" id="resetKeys" style="max-width:280px">Default keys and buttons</button>
+      <button class="btn secondary" id="resetKeys" style="max-width:280px">Default</button>
       </section>
       <section data-tab="progress" ${this.optionsTab === 'progress' ? '' : 'hidden'}>
       <div class="stats">
