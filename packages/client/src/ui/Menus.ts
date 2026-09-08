@@ -106,6 +106,8 @@ export interface MenuCallbacks {
   /** Menu music level. */
   onMusic: (value: number) => void;
   onMuted: (value: boolean) => void;
+  /** Shake, flashes, HUD size or rumble changed; the game re-reads the save. */
+  onFeel: () => void;
   /** Fired whenever a screen opens or the menus close. */
   onScreen: (screen: Screen) => void;
   /** Join a server; `address` is whatever the player typed. */
@@ -972,6 +974,26 @@ export class Menus {
         <label for="mute">Mute</label>
         <input type="checkbox" id="mute" ${this.save.muted ? 'checked' : ''}>
       </div>
+      <h2 style="margin-top:30px">Feel</h2>
+      <div class="row">
+        <label for="shake">Screen shake</label>
+        <input type="range" id="shake" min="0" max="100" value="${Math.round(this.save.shake * 100)}">
+        <span id="shakeVal">${Math.round(this.save.shake * 100)}%</span>
+      </div>
+      <div class="row">
+        <label for="flashes">Blast flashes</label>
+        <input type="checkbox" id="flashes" ${this.save.flashes ? 'checked' : ''}>
+        <span class="hint">off if bright flashes bother you</span>
+      </div>
+      <div class="row">
+        <label for="hud">HUD size</label>
+        <input type="range" id="hud" min="80" max="140" step="10" value="${Math.round(this.save.hudScale * 100)}">
+        <span id="hudVal">${Math.round(this.save.hudScale * 100)}%</span>
+      </div>
+      <div class="row">
+        <label for="rumble">Gamepad rumble</label>
+        <input type="checkbox" id="rumble" ${this.save.rumble ? 'checked' : ''}>
+      </div>
       <h2 style="margin-top:30px">Progress</h2>
       <div class="stats">
         <div>rooms unlocked <b>${Math.min(this.save.unlockedRooms, this.rooms.length)}</b> / ${this.rooms.length}</div>
@@ -1004,6 +1026,31 @@ export class Menus {
     mute.addEventListener('change', () => {
       this.save.setMuted(mute.checked);
       this.callbacks.onMuted(mute.checked);
+    });
+
+    const shake = inner.querySelector<HTMLInputElement>('#shake')!;
+    const shakeValue = inner.querySelector<HTMLSpanElement>('#shakeVal')!;
+    shake.addEventListener('input', () => {
+      shakeValue.textContent = `${shake.value}%`;
+      this.save.setShake(Number(shake.value) / 100);
+      this.callbacks.onFeel();
+    });
+    const flashes = inner.querySelector<HTMLInputElement>('#flashes')!;
+    flashes.addEventListener('change', () => {
+      this.save.setFlashes(flashes.checked);
+      this.callbacks.onFeel();
+    });
+    const hud = inner.querySelector<HTMLInputElement>('#hud')!;
+    const hudValue = inner.querySelector<HTMLSpanElement>('#hudVal')!;
+    hud.addEventListener('input', () => {
+      hudValue.textContent = `${hud.value}%`;
+      this.save.setHudScale(Number(hud.value) / 100);
+      this.callbacks.onFeel();
+    });
+    const rumble = inner.querySelector<HTMLInputElement>('#rumble')!;
+    rumble.addEventListener('change', () => {
+      this.save.setRumble(rumble.checked);
+      this.callbacks.onFeel();
     });
 
     const difficulty = inner.querySelector<HTMLSelectElement>('#difficulty')!;

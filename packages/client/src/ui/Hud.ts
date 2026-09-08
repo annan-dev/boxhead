@@ -45,6 +45,8 @@ export class Hud {
   private lastMultiplier = 1;
   private pop = 0;
   private lastLevel = 0;
+  /** Player's HUD size preference, 0.8-1.4. */
+  sizeScale = 1;
 
   constructor(
     private readonly world: World,
@@ -70,7 +72,7 @@ export class Hud {
 
     // Screen-space UI is laid out against a nominal height so it stays the same
     // apparent size whatever the device pixel ratio.
-    const scale = Math.max(1, Math.min(2, ctx.canvas.height / 620));
+    const scale = Math.max(1, Math.min(2, ctx.canvas.height / 620)) * this.sizeScale;
 
     if (world.multiplier > this.lastMultiplier) this.pop = POP_FRAMES;
     else if (this.pop > 0) this.pop -= 1;

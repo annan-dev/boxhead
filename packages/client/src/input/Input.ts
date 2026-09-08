@@ -105,6 +105,21 @@ export class Input {
     return this.padAims;
   }
 
+  /** Shake the pad, where the browser lets us; a no-op otherwise. */
+  rumble(ms: number, strong: number, weak = strong * 0.6): void {
+    const pad = firstGamepad();
+    const actuator = (pad as (Gamepad & { vibrationActuator?: { playEffect?: (type: string, params: object) => Promise<unknown> } }) | null)
+      ?.vibrationActuator;
+    if (!actuator?.playEffect) return;
+    try {
+      void actuator
+        .playEffect('dual-rumble', { duration: ms, strongMagnitude: strong, weakMagnitude: weak })
+        .catch(() => undefined);
+    } catch {
+      // Not every pad or browser supports it.
+    }
+  }
+
   constructor(private readonly target: HTMLCanvasElement) {
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);

@@ -47,6 +47,14 @@ export interface SaveState {
   netServer: string;
   /** Name shown to other players. */
   playerName: string;
+  /** Screen shake, 0-1 of the designed amount. */
+  shake?: number | undefined;
+  /** Full-screen flashes on blasts; off for players they bother. */
+  flashes?: boolean | undefined;
+  /** HUD size, 0.8-1.4. */
+  hudScale?: number | undefined;
+  /** Gamepad rumble. */
+  rumble?: boolean | undefined;
 }
 
 function defaults(): SaveState {
@@ -64,6 +72,10 @@ function defaults(): SaveState {
     unlockedRooms: 1,
     netServer: '',
     playerName: '',
+    shake: 1,
+    flashes: true,
+    hudScale: 1,
+    rumble: true,
   };
 }
 
@@ -153,6 +165,42 @@ export class SaveData {
 
   get muted(): boolean {
     return this.state.muted;
+  }
+
+  get shake(): number {
+    return this.state.shake ?? 1;
+  }
+
+  setShake(value: number): void {
+    this.state.shake = Math.max(0, Math.min(1, value));
+    this.persist();
+  }
+
+  get flashes(): boolean {
+    return this.state.flashes ?? true;
+  }
+
+  setFlashes(value: boolean): void {
+    this.state.flashes = value;
+    this.persist();
+  }
+
+  get hudScale(): number {
+    return this.state.hudScale ?? 1;
+  }
+
+  setHudScale(value: number): void {
+    this.state.hudScale = Math.max(0.8, Math.min(1.4, value));
+    this.persist();
+  }
+
+  get rumble(): boolean {
+    return this.state.rumble ?? true;
+  }
+
+  setRumble(value: boolean): void {
+    this.state.rumble = value;
+    this.persist();
   }
 
   get unlockedRooms(): number {
@@ -285,8 +333,8 @@ export class SaveData {
 
   /** Clear every stored score and unlock, for the options screen. */
   reset(): void {
-    const { characterId, volume, music, muted, difficulty, gameSpeed, devils } = this.state;
-    this.state = { ...defaults(), characterId, volume, music, muted, difficulty, gameSpeed, devils };
+    const { characterId, volume, music, muted, difficulty, gameSpeed, devils, shake, flashes, hudScale, rumble } = this.state;
+    this.state = { ...defaults(), characterId, volume, music, muted, difficulty, gameSpeed, devils, shake, flashes, hudScale, rumble };
     this.persist();
   }
 }

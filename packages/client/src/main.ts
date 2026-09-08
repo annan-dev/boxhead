@@ -175,6 +175,19 @@ let lastLobby: Omit<LobbyView, 'address' | 'status'> | null = null;
 
 /** Ticks the fallen player stays on screen before the debrief takes over. */
 const DEATH_LINGER_TICKS = 75;
+/** The fall plays out at this fraction of speed, so the moment lands. */
+const DEATH_SLOW_MOTION = 0.4;
+/** Frames the picture holds after a kill; longer for a multi-kill. */
+const HIT_STOP_FRAMES = [0, 1, 2, 3, 4];
+/** Ticks between hit stops, so a shredding uzi does not turn into a slideshow. */
+const HIT_STOP_SPACING = 12;
+
+/** Frames still to hold; the loop draws but does not step while it is up. */
+let hitStop = 0;
+let lastHitStopTick = -100;
+let lastKills = 0;
+let lastHurt = 0;
+let slowMotion = false;
 
 const menus = new Menus(app, pack, rooms, save, screens, {
   onStart: (roomId, characterId) => startRun(roomId, characterId),
@@ -200,6 +213,7 @@ const menus = new Menus(app, pack, rooms, save, screens, {
   onMuted: (value) => {
     if (audio.muted !== value) audio.toggleMute();
   },
+  onFeel: () => applyFeelSettings(),
   // The menus own the keyboard while they are up; play keys must not leak
   // through, and nothing pressed there may fire once play resumes.
   onScreen: (screen) => {
@@ -261,7 +275,20 @@ function bind(session: Session, characterId: string): void {
     camera,
     characterId,
   };
+  applyFeelSettings();
   loop.setStepMs(session.stepMs);
+  slowMotion = false;
+  hitStop = 0;
+  lastKills = world.kills;
+  lastHurt = world.hurt;
+}
+
+/** Push the comfort settings into whatever is drawing. */
+function applyFeelSettings(): void {
+  if (!run) return;
+  run.renderer.shakeScale = save.shake;
+  run.renderer.flashes = save.flashes;
+  run.hud.sizeScale = save.hudScale;
 }
 
 function startRun(roomId: string, characterId: string): void {
@@ -478,15 +505,37 @@ const loop = new Loop(
         if (menus.isOpen) return;
         if (input.consumePause()) paused = !paused;
         if (paused) return;
-        // Let the fall play out and the scene settle before the debrief.
+        // Let the fall play out and the scene settle before the debrief,
+        // slowed right down so the moment lands.
         const { world } = session;
+        if (world.gameOver && !slowMotion) {
+          slowMotion = true;
+          loop.setStepMs(session.stepMs / DEATH_SLOW_MOTION);
+        }
         if (world.gameOver && world.tick - world.gameOverTick >= DEATH_LINGER_TICKS) {
           finishRun();
+          return;
+        }
+        // A kill holds the picture for a frame or a few: the weight of it.
+        if (hitStop > 0) {
+          hitStop -= 1;
           return;
         }
       }
 
       session.step(input, camera, presenter);
+      if (!networked && run) {
+        const { world } = run.session;
+        const kills = world.kills - lastKills;
+        lastKills = world.kills;
+        if (kills > 0 && world.tick - lastHitStopTick >= HIT_STOP_SPACING && !world.gameOver) {
+          hitStop = HIT_STOP_FRAMES[Math.min(kills, HIT_STOP_FRAMES.length - 1)]!;
+          lastHitStopTick = world.tick;
+          if (save.rumble) input.rumble(40 + kills * 20, 0.2 + kills * 0.1, 0.3);
+        }
+        if (world.hurt > lastHurt + 0.05 && save.rumble) input.rumble(140, 0.9, 0.5);
+        lastHurt = world.hurt;
+      }
       // `step` may have replaced the world (a match started); re-read.
       if (!run) return;
       const world = run.session.world;

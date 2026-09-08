@@ -94,6 +94,9 @@ export class GameRenderer {
   private poseCacheZoom = 0;
   private zoom = 1;
   private ctx: CanvasRenderingContext2D | null = null;
+  /** Comfort settings: how much of the designed shake to apply, and whether to flash. */
+  shakeScale = 1;
+  flashes = true;
 
   constructor(
     private readonly world: World,
@@ -933,8 +936,9 @@ export class GameRenderer {
     ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
 
     // Shake is applied to the view only; the simulation never sees it.
-    const shakeX = world.shake > 0 ? (Math.random() - 0.5) * world.shake * 2 : 0;
-    const shakeY = world.shake > 0 ? (Math.random() - 0.5) * world.shake * 2 : 0;
+    const shake = world.shake * this.shakeScale;
+    const shakeX = shake > 0 ? (Math.random() - 0.5) * shake * 2 : 0;
+    const shakeY = shake > 0 ? (Math.random() - 0.5) * shake * 2 : 0;
 
     ctx.save();
     ctx.scale(camera.zoom, camera.zoom);
@@ -962,7 +966,7 @@ export class GameRenderer {
     this.drawEffects();
     ctx.restore();
 
-    if (world.flash > 0) {
+    if (world.flash > 0 && this.flashes) {
       ctx.fillStyle = `rgba(255,240,220,${world.flash * 0.3})`;
       ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
     }
