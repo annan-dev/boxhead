@@ -478,6 +478,11 @@ const STYLE = `
            color: #e6cf94; border: 1px solid var(--brass-dim); font: 700 10px ${BODY};
            text-transform: uppercase; letter-spacing: .12em; vertical-align: middle; }
   .badge.strong { background: var(--red); color: #fff; border-color: var(--red-lo); }
+  /* A badge that comes and goes keeps its place, so the row never shifts. */
+  .slot { display: inline-block; line-height: 0; }
+  .slot.off { visibility: hidden; }
+  /* The practice level reads on one line at a fixed width, so the slider row never grows or shifts. */
+  #startLevelVal { display: inline-block; min-width: 210px; white-space: nowrap; }
   /* Game: a row of buttons where a dropdown would hide the choices. */
   .seg { display: inline-flex; gap: 6px; flex-wrap: wrap; }
   .seg .tab { padding: 8px 14px; }
@@ -1221,19 +1226,19 @@ export class Menus {
               ${s.name}<small>${s.factor}x</small></button>`,
           ).join('')}
         </div>
-        <span id="speedBadge" ${this.save.gameSpeed === 'slow' ? '' : 'hidden'}>${NO_SCORE_BADGE}</span>
+        <span id="speedBadge" class="slot ${this.save.gameSpeed === 'slow' ? '' : 'off'}">${NO_SCORE_BADGE}</span>
       </div>
       <div class="row">
         <label for="devils">Devils</label>
         <input type="checkbox" id="devils" ${this.save.devils ? 'checked' : ''}>
-        <span id="devilsBadge" ${this.save.devils ? 'hidden' : ''}>${NO_SCORE_BADGE}</span>
+        <span id="devilsBadge" class="slot ${this.save.devils ? 'off' : ''}">${NO_SCORE_BADGE}</span>
       </div>
       <div class="row">
         <label for="startLevel">Practice start</label>
         <input type="range" id="startLevel" min="1" max="60" value="${this.save.startLevel || 1}" list="presetTicks">
         <datalist id="presetTicks">${DIFFICULTIES.map((d) => `<option value="${d.startLevel}" label="${d.name}"></option>`).join('')}</datalist>
         <span id="startLevelVal">${this.startLevelLabel()}</span>
-        <span id="startLevelBadge" ${this.save.startLevel ? '' : 'hidden'}>${NO_SCORE_BADGE}</span>
+        <span id="startLevelBadge" class="slot ${this.save.startLevel ? '' : 'off'}">${NO_SCORE_BADGE}</span>
       </div>
       <p class="hint" style="margin:-6px 0 0 146px;max-width:560px">Open the run on any level with the awards a preset
         would have banked there, to practise a wave the presets skip. Such a run counts for nothing.</p>
@@ -1457,13 +1462,13 @@ export class Menus {
     const speedBadge = inner.querySelector<HTMLSpanElement>('#speedBadge')!;
     segment('speed', (value) => {
       this.save.setGameSpeed(value);
-      speedBadge.hidden = value !== 'slow';
+      speedBadge.classList.toggle('off', value !== 'slow');
     });
     const devils = inner.querySelector<HTMLInputElement>('#devils')!;
     const devilsBadge = inner.querySelector<HTMLSpanElement>('#devilsBadge')!;
     devils.addEventListener('change', () => {
       this.save.setDevils(devils.checked);
-      devilsBadge.hidden = devils.checked;
+      devilsBadge.classList.toggle('off', devils.checked);
     });
     const startLevel = inner.querySelector<HTMLInputElement>('#startLevel')!;
     const startLevelValue = inner.querySelector<HTMLSpanElement>('#startLevelVal')!;
@@ -1472,7 +1477,7 @@ export class Menus {
       const level = Number(startLevel.value);
       this.save.setStartLevel(level <= 1 ? 0 : level);
       startLevelValue.textContent = this.startLevelLabel();
-      startLevelBadge.hidden = this.save.startLevel === 0;
+      startLevelBadge.classList.toggle('off', this.save.startLevel === 0);
     });
 
     const keyNote = inner.querySelector<HTMLDivElement>('#keyNote')!;
