@@ -16,7 +16,9 @@ import {
   serverUrl,
   type ArtPack,
   type ExtractedRoom,
+  type Player,
   type SoundEvent,
+  type World,
 } from '@boxhead/shared';
 import { Loop } from './loop/Loop.js';
 import { Input } from './input/Input.js';
@@ -27,6 +29,7 @@ import { Menus, type LobbyView, type RunResult, type ScreenArt } from './ui/Menu
 import { SaveData } from './state/SaveData.js';
 import { AudioEngine, SOUND_NAMES } from './audio/AudioEngine.js';
 import { MenuMusic } from './audio/MenuMusic.js';
+import { GameMusic } from './audio/GameMusic.js';
 import type { Presenter, Session } from './session/Session.js';
 import { LocalSession } from './session/LocalSession.js';
 import { NetSession } from './session/NetSession.js';
@@ -120,6 +123,9 @@ if (save.muted) audio.toggleMute();
 // The menus' own track; it follows the master volume and mute through the engine.
 const music = new MenuMusic(() => audio.bus());
 music.setVolume(save.music);
+// The bed under play, driven by how the fight is going; same slider.
+const gameMusic = new GameMusic(() => audio.bus());
+gameMusic.setVolume(save.music);
 // Browsers only unlock audio on a gesture they count as activation, which
 // an Escape press or a touch-start is not, so keep trying until it takes.
 const unlock = (): void => {
@@ -187,7 +193,10 @@ const menus = new Menus(app, pack, rooms, save, screens, {
     menus.show('title');
   },
   onVolume: (value) => audio.setVolume(value),
-  onMusic: (value) => music.setVolume(value),
+  onMusic: (value) => {
+    music.setVolume(value);
+    gameMusic.setVolume(value);
+  },
   onMuted: (value) => {
     if (audio.muted !== value) audio.toggleMute();
   },
@@ -196,6 +205,7 @@ const menus = new Menus(app, pack, rooms, save, screens, {
   onScreen: (screen) => {
     input.setEnabled(screen === 'none');
     music.setScene(screen === 'none' ? 'off' : screen === 'pause' ? 'ducked' : 'full');
+    gameMusic.setScene(screen === 'none' && run ? 'play' : screen === 'pause' && run ? 'ducked' : 'off');
   },
   onConnect: (address, name, characterId) => connect(address, name, characterId),
   onLeaveMatch: () => {
@@ -329,6 +339,7 @@ function endRun(): void {
   paused = false;
   menus.inMatch = false;
   netBadge.hidden = true;
+  gameMusic.setScene('off');
 }
 
 /** Bank the current run's result exactly once, whatever ended it. */
@@ -393,6 +404,24 @@ window.addEventListener('resize', resize);
 // Layout can settle after the module runs, so track the element itself.
 new ResizeObserver(resize).observe(canvas);
 resize();
+
+/**
+ * How hard the fight is going, 0 to 1, for the music: creatures within
+ * reach of the player, the multiplier's climb, and how hurt they are.
+ */
+function tensionOf(world: World, me: Player | undefined): number {
+  if (!me || me.state !== 'alive') return 0.2;
+  let near = 0;
+  for (const enemy of world.enemies) {
+    if (enemy.state !== 'alive') continue;
+    const d = Math.hypot(enemy.x - me.x, enemy.y - me.y);
+    if (d < 420) near += d < 160 ? 1.5 : 1;
+  }
+  const crowd = Math.min(1, near / 14);
+  const climb = Math.min(1, world.multiplier / 60);
+  const hurt = 1 - me.life / me.maxLife;
+  return crowd * 0.6 + climb * 0.15 + hurt * 0.35;
+}
 
 /**
  * Losing the window mid-wave must not cost the run: a single-player game
@@ -469,6 +498,8 @@ const loop = new Loop(
 
       const listener = { x: run.camera.x, y: run.camera.y, halfWidth: run.camera.viewWidth / 2 };
       audio.updateAmbience(world.enemies.length, listener, ambienceRandom);
+      gameMusic.setTension(tensionOf(world, local));
+      gameMusic.setScene(world.gameOver ? 'off' : paused ? 'ducked' : 'play');
       stepAverage = stepAverage * 0.9 + loop.stepMs * 0.1;
     },
     draw: (alpha) => {
@@ -603,6 +634,8 @@ if (import.meta.env.DEV) {
     loop,
     rooms,
     music,
+    gameMusic,
+    audio,
     startRun,
     connect,
     /**
