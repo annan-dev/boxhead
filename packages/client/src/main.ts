@@ -12,6 +12,7 @@
 import {
   ROOMS,
   TICK_MS,
+  circleBlocked,
   emptyCommand,
   serverUrl,
   type ArtPack,
@@ -436,6 +437,30 @@ window.addEventListener('resize', resize);
 new ResizeObserver(resize).observe(canvas);
 resize();
 
+/** Camera look-ahead toward the aim, in world pixels. */
+const AIM_LEAD = 0.18;
+const AIM_LEAD_MAX = 64;
+
+function aimLead(me: Player): { x: number; y: number } {
+  if (!run) return { x: 0, y: 0 };
+  let dx: number;
+  let dy: number;
+  if (input.padOwnsAim) {
+    dx = Math.cos(me.angle) * AIM_LEAD_MAX * 0.7;
+    dy = Math.sin(me.angle) * AIM_LEAD_MAX * 0.7;
+  } else {
+    const aim = run.camera.screenToWorld(input.pointerX, input.pointerY);
+    dx = (aim.x - me.x) * AIM_LEAD;
+    dy = (aim.y - me.y) * AIM_LEAD;
+  }
+  const length = Math.hypot(dx, dy);
+  if (length > AIM_LEAD_MAX) {
+    dx *= AIM_LEAD_MAX / length;
+    dy *= AIM_LEAD_MAX / length;
+  }
+  return { x: dx, y: dy };
+}
+
 /**
  * How hard the fight is going, 0 to 1, for the music: creatures within
  * reach of the player, the multiplier's climb, and how hurt they are.
@@ -547,7 +572,12 @@ const loop = new Loop(
       // Follow whoever is alive if the local player is not, so a fallen or
       // still-seating player can watch the match.
       const target = local && local.state !== 'dead' ? local : world.players.find((p) => p.state === 'alive');
-      if (target) run.camera.follow(target.x, target.y);
+      if (target) {
+        // Lean the camera a little toward the aim, so the player sees more
+        // of where they are shooting than of what is behind them.
+        const lead = target === local && local.state === 'alive' ? aimLead(local) : { x: 0, y: 0 };
+        run.camera.follow(target.x + lead.x, target.y + lead.y);
+      }
 
       const listener = { x: run.camera.x, y: run.camera.y, halfWidth: run.camera.viewWidth / 2 };
       audio.updateAmbience(world.enemies.length, listener, ambienceRandom);
@@ -755,23 +785,52 @@ if (import.meta.env.DEV) {
             }
           }
           if (nearest) {
-            command.aimX = nearest.x;
-            command.aimY = nearest.y;
+            // A devil in range is the target; otherwise the nearest thing.
+            let devil: { x: number; y: number; d: number } | null = null;
+            for (const enemy of world.enemies) {
+              if (enemy.state !== 'alive' || enemy.defId !== 'devil') continue;
+              const d = Math.hypot(enemy.x - me.x, enemy.y - me.y);
+              if (d < 320 && (!devil || d < devil.d)) devil = { x: enemy.x, y: enemy.y, d };
+            }
+            const aimAt = devil ?? nearest;
+            command.aimX = aimAt.x;
+            command.aimY = aimAt.y;
             // Pulse the trigger: a semi-automatic weapon fires on the press, not the hold.
-            command.fire = nearest.d < 420 && i % 2 === 0;
+            command.fire = aimAt.d < 420 && i % 2 === 0;
             const fromX = crowd > 0 ? cx / crowd : nearest.x;
             const fromY = crowd > 0 ? cy / crowd : nearest.y;
             const away = Math.atan2(me.y - fromY, me.x - fromX);
             if (opts.suicide) {
               command.moveX = Math.sign(Math.round(Math.cos(away + Math.PI) * 2));
               command.moveY = Math.sign(Math.round(Math.sin(away + Math.PI) * 2));
-            } else if (nearest.d < 150) {
-              // Retreat, drifting toward the arena centre so the bot is not pinned in a corner.
+            } else if (nearest.d < 170 || crowd > 3) {
+              // Retreat along the most open of sixteen headings: clear of walls,
+              // far from every creature, and leaning away from the crowd.
               const bounds = session.room.floorBounds ?? { x: 0, y: 0, w: session.room.width, h: session.room.height };
-              const toCentre = Math.atan2(bounds.y + bounds.h / 2 - me.y, bounds.x + bounds.w / 2 - me.x);
-              const blend = Math.atan2(Math.sin(away) * 0.7 + Math.sin(toCentre) * 0.3, Math.cos(away) * 0.7 + Math.cos(toCentre) * 0.3);
-              command.moveX = Math.sign(Math.round(Math.cos(blend) * 2));
-              command.moveY = Math.sign(Math.round(Math.sin(blend) * 2));
+              let bestScore = -Infinity;
+              let bestAngle = away;
+              for (let k = 0; k < 16; k++) {
+                const angle = (k / 16) * Math.PI * 2;
+                const px = me.x + Math.cos(angle) * 56;
+                const py = me.y + Math.sin(angle) * 56;
+                if (circleBlocked(world.map, px, py, me.radius + 2)) continue;
+                if (circleBlocked(world.map, me.x + Math.cos(angle) * 28, me.y + Math.sin(angle) * 28, me.radius + 2)) continue;
+                let clearance = Infinity;
+                for (const enemy of world.enemies) {
+                  if (enemy.state !== 'alive') continue;
+                  clearance = Math.min(clearance, Math.hypot(enemy.x - px, enemy.y - py));
+                }
+                const agreement = Math.cos(angle - away);
+                const toCentre = Math.atan2(bounds.y + bounds.h / 2 - py, bounds.x + bounds.w / 2 - px);
+                const centred = Math.cos(angle - toCentre);
+                const score = Math.min(clearance, 400) + agreement * 60 + centred * 25;
+                if (score > bestScore) {
+                  bestScore = score;
+                  bestAngle = angle;
+                }
+              }
+              command.moveX = Math.sign(Math.round(Math.cos(bestAngle) * 2));
+              command.moveY = Math.sign(Math.round(Math.sin(bestAngle) * 2));
             }
           } else {
             command.aimX = me.x + 100;
