@@ -17,7 +17,7 @@
  * what you get; the original's own bitmaps replace them when present.
  */
 import type { ArtPack, ExtractedRoom, LobbyPlayer, MatchConfig, RoomPhase } from '@boxhead/shared';
-import { CHARACTERS, DEATHMATCH_KILL_TARGETS, DIFFICULTIES, GAME_SPEEDS } from '@boxhead/shared';
+import { CHARACTERS, DEATHMATCH_KILL_TARGETS, DIFFICULTIES, GAME_SPEEDS, practiceStart } from '@boxhead/shared';
 import { drawComposed, type TextureSwap } from '../render/VectorModel.js';
 import { ClipIndex, composePose, type Layer } from '../render/Rig.js';
 import { drawSprite } from '../render/SpriteRenderer.js';
@@ -550,6 +550,8 @@ export class Menus {
     // a mouse; a gamepad does the same through the poller below.
     window.addEventListener('keydown', (event) => {
       if (this.current === 'none') return;
+      // Tab moves the focus too, and should tick like the arrows.
+      if (event.code === 'Tab') this.focusByKey = true;
       const target = event.target as HTMLElement | null;
       if (target && (target.tagName === 'INPUT' || target.tagName === 'SELECT')) return;
       const arrows: Record<string, [number, number]> = {
@@ -583,14 +585,15 @@ export class Menus {
       if (this.focusByKey && control(event.target)) this.callbacks.onUiSound?.('hover');
       this.focusByKey = false;
     });
-    const quiet = (target: EventTarget | null): boolean => {
-      const el = target as HTMLElement | null;
-      return el?.tagName === 'SELECT' || (el?.tagName === 'INPUT' && (el as HTMLInputElement).type !== 'checkbox' && (el as HTMLInputElement).type !== 'range');
-    };
     this.root.addEventListener('click', (event) => {
       const el = event.target as HTMLElement | null;
+      // Selects and inputs speak on change, below, not on the click that opens them.
       if (el?.tagName === 'SELECT' || el?.tagName === 'INPUT') return;
-      if (control(event.target) && !quiet(event.target)) this.callbacks.onUiSound?.('click');
+      if (control(event.target)) this.callbacks.onUiSound?.('click');
+    });
+    this.root.addEventListener('input', (event) => {
+      const el = event.target as HTMLElement | null;
+      if (el?.tagName === 'INPUT' && (el as HTMLInputElement).type === 'range') this.callbacks.onUiSound?.('hover');
     });
     this.root.addEventListener('change', (event) => {
       const el = event.target as HTMLElement | null;
@@ -901,7 +904,7 @@ export class Menus {
           ? `best ${at.score.toLocaleString()} &middot; level ${at.level}` +
             (line && line.runs > 0 ? ` &middot; ${line.runs} ${line.runs === 1 ? 'run' : 'runs'}, usually ${formatSeconds(line.medianSeconds)}` : '')
           : record.score > 0
-            ? `no ${escapeHtml(this.difficultyName())} run yet &middot; best ${record.score.toLocaleString()} on ${escapeHtml(this.difficultyName(record.difficulty ?? 'beginner'))} &middot; ${escapeHtml(SaveData.presetLine(preset, this.save.devils))}`
+            ? `best ${record.score.toLocaleString()} on ${escapeHtml(this.difficultyName(record.difficulty ?? 'beginner'))} &middot; ${escapeHtml(SaveData.presetLine(preset, this.save.devils))}`
             : `not played &middot; ${escapeHtml(SaveData.presetLine(preset, this.save.devils))}`;
         const icon = this.screens?.levelIcons[room.id];
         return `
@@ -1136,15 +1139,11 @@ export class Menus {
         <dt>${escapeHtml(this.keyLabel(['pause']))}</dt><dd>quick pause</dd>
         <dt>Escape</dt><dd>pause menu: resume, restart, options, quit</dd>
         <dt>R &middot; M &middot; F3</dt><dd>restart while paused &middot; mute &middot; performance stats</dd>
-        <dt>Gamepad</dt><dd>left stick or d-pad moves, right stick aims, right trigger or A fires,
-          bumpers cycle weapons, Start quick-pauses, B or Y opens the pause menu; in the menus the
-          d-pad moves, A chooses, B goes back</dd>
-        <dt>Two players</dt><dd>tick <i>two players on this screen</i> when choosing a room. Player 2
-          takes the gamepad, or the arrow keys with Enter to fire, , . to cycle and Backspace to pause,
-          and aims the way they walk. In co-op you share one screen, one score and one multiplier, and a
-          fallen player comes back beside the other. Tick <i>deathmatch</i> for the original's head to
-          head: no zombies, the whole arsenal owned but unloaded until a crate is found, first to twenty
-          kills wins.</dd>
+        <dt>Gamepad</dt><dd>sticks move and aim, trigger fires, bumpers cycle, Start pauses; every
+          button is listed under Options, Controls</dd>
+        <dt>Two players</dt><dd>tick <i>two players on this screen</i> when choosing a room: player 2
+          takes the gamepad or the arrows and Enter, and you share one screen and one score. Tick
+          <i>deathmatch</i> for the original's head to head, first to twenty.</dd>
       </dl>
       </div>
       <div>
@@ -1743,6 +1742,11 @@ export class Menus {
         <input type="checkbox" id="ldevils" ${view.config.devils ? 'checked' : ''} ${canEdit ? '' : 'disabled'}>
         <span class="hint">${room ? escapeHtml(room.name) : ''}</span>
       </div>
+      <div class="row">
+        <label for="lstart">Practice start</label>
+        <input type="range" id="lstart" min="1" max="60" value="${practiceStart(view.config) || 1}" ${canEdit ? '' : 'disabled'}>
+        <span id="lstartVal">${practiceStart(view.config) ? `level ${practiceStart(view.config)} &middot; nothing is recorded` : 'off'}</span>
+      </div>
       ${
         view.phase === 'playing'
           ? `<button class="btn primary" id="rejoin">Join the match in progress</button>`
@@ -1772,6 +1776,11 @@ export class Menus {
       speed.addEventListener('change', () => this.callbacks.onLobbyConfigure({ gameSpeed: speed.value }));
       const devils = inner.querySelector<HTMLInputElement>('#ldevils')!;
       devils.addEventListener('change', () => this.callbacks.onLobbyConfigure({ devils: devils.checked }));
+      const start = inner.querySelector<HTMLInputElement>('#lstart')!;
+      start.addEventListener('change', () => {
+        const level = Number(start.value);
+        this.callbacks.onLobbyConfigure({ startLevel: level <= 1 ? 0 : level });
+      });
     }
   }
 

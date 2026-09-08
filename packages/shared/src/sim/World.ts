@@ -309,6 +309,15 @@ export class World {
    * it lasts the same real time at every game speed: at Fast the world steps
    * twice as often per second, so the span needs twice the ticks.
    */
+  /**
+   * A run opening above level 1 is told what wave it opens on, as every
+   * level-up is. Called once the world is built; a Beginner start has
+   * nothing to say yet.
+   */
+  announceOpening(): void {
+    if (this.level > 1 && this.mode !== 'deathmatch') this.pushMessage(levelBanner(this.level), 'level', 200);
+  }
+
   private realTicks(ticks: number): number {
     return Math.max(1, Math.round(ticks * this.speedFactor));
   }

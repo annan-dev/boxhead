@@ -266,6 +266,10 @@ function synthesize(context: AudioContext, destination: AudioNode, name: string)
       tone('triangle', 180, 0, 0.14, 0.16, 90);
       thump(0, 0.1, 0.12, 200, 70);
       break;
+    case 'UI.Heart':
+      // A muffled thump under the mix, once a beat while health is low.
+      thump(0, 0.16, 0.14, 70, 40);
+      break;
     case 'UI.Hover':
       // The faintest tick, high and dry, as the focus lands on a button.
       tone('triangle', 1900, 0, 0.025, 0.025, 1500);

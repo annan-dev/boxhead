@@ -15,7 +15,6 @@ import {
   TICK_MS,
   WEAPONS,
   circleBlocked,
-  levelBanner,
   emptyCommand,
   serverUrl,
   type ArtPack,
@@ -199,6 +198,8 @@ let hitStop = 0;
 let lastHitStopTick = -100;
 let lastKills = 0;
 let lastHurt = 0;
+/** The heartbeat's strength last tick, so the thump lands on the rise. */
+let lastBeat = 0;
 let slowMotion = false;
 
 const menus = new Menus(app, pack, rooms, save, screens, {
@@ -422,9 +423,6 @@ function startRun(roomId: string, characterId: string): void {
     ...(save.sharedScreen ? { secondCharacterId: save.secondCharacterId, mode: save.sharedMode } : {}),
   });
   bind(session, characterId);
-  // A run opening above level 1 is told what wave it opens on, as every
-  // level-up is; a Beginner start has nothing to say yet.
-  if (session.startLevel > 1) session.world.pushMessage(levelBanner(session.startLevel), 'level', 200);
   paused = false;
   debriefed = false;
   input.clearLatches();
@@ -815,6 +813,15 @@ const loop = new Loop(
         }
         if (world.hurt > lastHurt + 0.05 && save.rumble) input.rumble(140, 0.9, 0.5);
         lastHurt = world.hurt;
+        // The heartbeat has a sound: a thump on each rise while a seat is low.
+        let lowest = 1;
+        for (let seat = 0; seat < (run.session instanceof LocalSession ? run.session.localSeats : 1); seat++) {
+          const p = world.players[seat];
+          if (p && p.state === 'alive') lowest = Math.min(lowest, p.life / p.maxLife);
+        }
+        const beat = run.hud.heartbeat(lowest);
+        if (beat > 0.5 && lastBeat <= 0.5) audio.play('UI.Heart', 0, 0, 1, { x: 0, y: 0, halfWidth: 1 });
+        lastBeat = beat;
         const me = world.players[run.session.localPlayerIndex];
         if (me && me.state === 'alive' && !world.gameOver) offerTips(world, me);
         // Park every ten seconds as well, against a crash the page never sees coming.

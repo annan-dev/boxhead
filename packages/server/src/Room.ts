@@ -29,6 +29,8 @@ import {
   tickMsFor,
   worldFromConfig,
   sanitizeCommand,
+  matchWorld,
+  practiceStart,
 } from '@boxhead/shared';
 import type {
   ExtractedRoom,
@@ -337,6 +339,7 @@ export class Room {
       next.gameSpeed = partial.gameSpeed;
     }
     if (typeof partial.devils === 'boolean') next.devils = partial.devils;
+    if (typeof partial.startLevel === 'number') next.startLevel = practiceStart({ startLevel: partial.startLevel });
     this.config = next;
     this.broadcast(this.lobbyMessage());
     return true;
@@ -359,7 +362,7 @@ export class Room {
 
     const characters: string[] = [];
     for (const p of this.participants.values()) characters[p.playerIndex] = p.character;
-    const world = worldFromConfig(this.arena, this.config, this.maxPlayers, characters);
+    const world = matchWorld(this.arena, this.config, this.maxPlayers, characters);
     world.cosmetics = true;
     const present = new Set<number>();
     for (const p of this.participants.values()) if (p.connected) present.add(p.playerIndex);

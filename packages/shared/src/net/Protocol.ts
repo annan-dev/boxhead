@@ -44,6 +44,8 @@ export interface MatchConfig {
   /** A `GAME_SPEEDS` id; the server steps at TICK_MS / factor of wall time. */
   gameSpeed: string;
   devils: boolean;
+  /** A practice start on this level instead of the preset's; 0 or absent for the preset. */
+  startLevel?: number;
   seed: number;
 }
 

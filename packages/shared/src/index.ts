@@ -56,6 +56,15 @@ export type {
   NetEvent,
 } from './net/Protocol.js';
 export type * from './sim/types.js';
-export { DEFAULT_MATCH_CONFIG, tickMsFor, worldFromConfig } from './net/Match.js';
+export {
+  DEFAULT_MATCH_CONFIG,
+  PRACTICE_START_MAX,
+  PRACTICE_START_MIN,
+  matchWorld,
+  multiplierForStart,
+  practiceStart,
+  tickMsFor,
+  worldFromConfig,
+} from './net/Match.js';
 export { InputHistory, reconcile, inferRemoteCommand } from './net/Reconcile.js';
 export type { ReconcileHooks } from './net/Reconcile.js';

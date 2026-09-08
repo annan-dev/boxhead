@@ -196,26 +196,33 @@ export class Hud {
    * hurt vignette answers a hit; this one keeps nagging until the player
    * has healed, which is the thing they would otherwise not notice.
    */
+  /** The heartbeat's strength this tick at a life ratio: two quick beats then a rest, faster as it gets worse. */
+  heartbeat(ratio: number): number {
+    if (ratio > 0.3) return 0;
+    const urgency = 1 - ratio / 0.3;
+    const period = 60 - urgency * 25;
+    const phase = (this.world.tick % period) / period;
+    return Math.max(0, Math.sin(phase * Math.PI * 2)) * (phase < 0.5 ? 1 : 0.55);
+  }
+
   private drawLowHealth(ctx: CanvasRenderingContext2D, player: Player, seatX: number | null = null): void {
     const ratio = player.life / player.maxLife;
     if (ratio > 0.3) return;
     const urgency = 1 - ratio / 0.3;
-    // Two quick beats then a rest, faster as it gets worse.
-    const period = 60 - urgency * 25;
-    const phase = (this.world.tick % period) / period;
-    const beat = Math.max(0, Math.sin(phase * Math.PI * 2)) * (phase < 0.5 ? 1 : 0.55);
-    const strength = (0.18 + urgency * 0.22) * beat;
+    const beat = this.heartbeat(ratio);
+    const strength = (0.3 + urgency * 0.3) * beat;
     if (strength <= 0.01) return;
     const { width, height } = ctx.canvas;
     // On a shared screen the beat centres on the hurt seat's side, so the
     // other player knows it is not theirs.
     const cx = seatX === null ? width / 2 : Math.max(width * 0.25, Math.min(width * 0.75, seatX));
     const gradient = ctx.createRadialGradient(
-      cx, height / 2, Math.min(width, height) * 0.3,
-      cx, height / 2, Math.max(width, height) * 0.7,
+      cx, height / 2, Math.min(width, height) * 0.28,
+      cx, height / 2, Math.max(width, height) * 0.58,
     );
-    gradient.addColorStop(0, 'rgba(150,0,0,0)');
-    gradient.addColorStop(1, `rgba(150,0,0,${strength})`);
+    gradient.addColorStop(0, 'rgba(160,0,0,0)');
+    gradient.addColorStop(0.6, `rgba(160,0,0,${strength * 0.45})`);
+    gradient.addColorStop(1, `rgba(160,0,0,${Math.min(0.85, strength * 1.4)})`);
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, width, height);
     if (this.highContrast) {
@@ -411,6 +418,13 @@ export class Hud {
     // Green through amber to red, so low health is readable at a glance.
     ctx.fillStyle = ratio > 0.5 ? '#3ec04a' : ratio > 0.25 ? AMBER : RED;
     ctx.fillRect(x, y, width * ratio, height);
+    if (ratio <= 0.3) {
+      // The bar itself beats with the heart, a second place the same pulse shows.
+      const beat = this.heartbeat(ratio);
+      ctx.strokeStyle = `rgba(255,255,255,${0.25 + beat * 0.65})`;
+      ctx.lineWidth = (1 + beat * 1.5) * s;
+      ctx.strokeRect(x - 1.5 * s, y - 1.5 * s, width + 3 * s, height + 3 * s);
+    }
 
     if (player.invincible > 0) {
       ctx.strokeStyle = 'rgba(255,255,255,0.8)';

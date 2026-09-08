@@ -5,6 +5,7 @@ import {
   DIFFICULTIES,
   GAME_SPEEDS,
   World,
+  multiplierForStart,
   tickMsFor,
   type ExtractedRoom,
   type GameMode,
@@ -31,23 +32,7 @@ export interface LocalOptions {
   startLevel?: number;
 }
 
-/**
- * The multiplier a custom start banks: the presets' own points (level 1 at
- * x1, 10 at x10, 20 at x30, 35 at x50) joined by straight lines and carried
- * on at the last slope, so a start between two presets sits between them.
- */
-export function multiplierForStart(level: number): number {
-  const points = DIFFICULTIES.map((d) => [d.startLevel, d.startMultiplier] as const).sort((a, b) => a[0] - b[0]);
-  if (level <= points[0]![0]) return points[0]![1];
-  for (let i = 1; i < points.length; i++) {
-    const [l0, m0] = points[i - 1]!;
-    const [l1, m1] = points[i]!;
-    if (level <= l1) return Math.round(m0 + ((level - l0) / (l1 - l0)) * (m1 - m0));
-  }
-  const [l0, m0] = points[points.length - 2]!;
-  const [l1, m1] = points[points.length - 1]!;
-  return Math.round(m1 + ((level - l1) / (l1 - l0)) * (m1 - m0));
-}
+export { multiplierForStart } from '@boxhead/shared';
 
 /** How far apart two players sharing one screen may get, in world pixels. */
 export const SHARED_SCREEN_TETHER = 520;
@@ -94,6 +79,7 @@ export class LocalSession implements Session {
       ...(shared ? { tether: SHARED_SCREEN_TETHER } : {}),
     });
     if (options.snapshot) this.world.restore(options.snapshot);
+    else this.world.announceOpening();
     // Game speed scales the wall time per step, as the original scaled its
     // logic rate; the simulation itself stays a fixed 50Hz.
     this.stepMs = tickMsFor(options.gameSpeed);
