@@ -19,6 +19,8 @@ export interface SavedRun {
   devils: boolean;
   countsForHighScores: boolean;
   practiceReason: string | null;
+  /** The second seat's character when the run was shared-screen. */
+  secondCharacterId?: string;
   /** The world, as `World.snapshot()` wrote it. */
   snapshot: unknown;
   /** For the title's label. */
@@ -94,6 +96,10 @@ export interface SaveState {
   tips?: boolean | undefined;
   /** The last few runs, newest first. */
   history?: RunEntry[] | undefined;
+  /** Two players on this screen. */
+  sharedScreen?: boolean | undefined;
+  /** The second player's character. */
+  secondCharacterId?: string | undefined;
 }
 
 function defaults(): SaveState {
@@ -243,6 +249,24 @@ export class SaveData {
 
   get tips(): boolean {
     return this.state.tips ?? true;
+  }
+
+  get sharedScreen(): boolean {
+    return this.state.sharedScreen ?? false;
+  }
+
+  setSharedScreen(value: boolean): void {
+    this.state.sharedScreen = value;
+    this.persist();
+  }
+
+  get secondCharacterId(): string {
+    return this.state.secondCharacterId ?? 'bond';
+  }
+
+  setSecondCharacter(id: string): void {
+    this.state.secondCharacterId = id;
+    this.persist();
   }
 
   setTips(value: boolean): void {

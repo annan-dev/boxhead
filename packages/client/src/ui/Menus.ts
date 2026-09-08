@@ -759,11 +759,27 @@ export class Menus {
       <div class="stats">
         <div>playing as <b>${this.characterName(this.selectedCharacter)}</b></div>
         <div>difficulty <b>${this.difficultyName()}</b></div>
+        <div><label style="cursor:pointer"><input type="checkbox" id="shared" ${this.save.sharedScreen ? 'checked' : ''} style="accent-color:var(--red);vertical-align:-2px;margin-right:6px">two players on this screen</label></div>
+        ${
+          this.save.sharedScreen
+            ? `<div>player 2 <b>${this.characterName(this.save.secondCharacterId)}</b> &middot; <span style="text-transform:none;letter-spacing:0">gamepad, or arrows + Enter</span></div>`
+            : ''
+        }
         ${this.save.practiceReason ? `<div><span class="badge strong">&#9888; practice run &mdash; ${this.save.practiceReason}</span></div>` : ''}
       </div>
       <div class="panel"><div class="paper"><div class="grid">${cards}</div></div></div>
     `);
     this.backButton(inner, 'title');
+    const shared = inner.querySelector<HTMLInputElement>('#shared')!;
+    shared.addEventListener('change', () => {
+      this.save.setSharedScreen(shared.checked);
+      // The second seat gets a different face from the first.
+      if (shared.checked && this.save.secondCharacterId === this.selectedCharacter) {
+        const other = CHARACTERS.find((c) => c.id !== this.selectedCharacter);
+        if (other) this.save.setSecondCharacter(other.id);
+      }
+      this.renderRooms();
+    });
 
     for (const canvas of inner.querySelectorAll<HTMLCanvasElement>('[data-map]')) {
       const room = this.rooms.find((r) => r.id === canvas.dataset.map);
@@ -943,6 +959,10 @@ export class Menus {
         <dt>Gamepad</dt><dd>left stick or d-pad moves, right stick aims, right trigger or A fires,
           bumpers cycle weapons, Start quick-pauses, B or Y opens the pause menu; in the menus the
           d-pad moves, A chooses, B goes back</dd>
+        <dt>Two players</dt><dd>tick <i>two players on this screen</i> when choosing a room. Player 2
+          takes the gamepad, or the arrow keys with Enter to fire and , . to cycle, and aims the way
+          they walk. You share one screen, one score and one multiplier, and a fallen player comes
+          back beside the other.</dd>
       </dl>
       <h2>Surviving</h2>
       <dl class="keys">

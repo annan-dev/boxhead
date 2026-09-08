@@ -10,7 +10,12 @@ npm run dev                           # http://localhost:5173
 npm start                             # a multiplayer server on :8787
 ```
 
-Playing together: one person runs `npm start` and shares the address the
+Playing together on one screen, as the original's 2Play did: tick **two
+players on this screen** when choosing a room. Player 2 takes the gamepad, or
+the arrow keys with Enter to fire, and the two of you share one screen, one
+score and one multiplier, never more than a screen apart.
+
+Playing together online: one person runs `npm start` and shares the address the
 server prints, everyone else opens the game, picks **Multiplayer**, and types
 it in, the way a Minecraft server works. See [Multiplayer](#multiplayer).
 

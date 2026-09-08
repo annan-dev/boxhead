@@ -47,6 +47,8 @@ export class Hud {
   private lastLevel = 0;
   /** Player's HUD size preference, 0.8-1.4. */
   sizeScale = 1;
+  /** Seats driven from this screen, each of which gets a weapon strip. */
+  localSeats = 1;
 
   constructor(
     private readonly world: World,
@@ -90,7 +92,13 @@ export class Hud {
     }
     if (player && player.state === 'alive') this.drawThreatMarkers(ctx, camera, player, scale);
     if (player && pointer) this.drawReticle(ctx, player, pointer, scale);
-    if (player) this.drawWeapons(ctx, player, scale);
+    if (this.localSeats >= 2) {
+      const second = world.players[1];
+      if (player) this.drawWeapons(ctx, player, scale, -1, 'P1');
+      if (second) this.drawWeapons(ctx, second, scale, 1, 'P2');
+    } else if (player) {
+      this.drawWeapons(ctx, player, scale);
+    }
     this.drawScore(ctx, scale);
     this.drawMessages(ctx, scale);
   }
@@ -284,14 +292,28 @@ export class Hud {
     }
   }
 
-  private drawWeapons(ctx: CanvasRenderingContext2D, player: Player, s: number): void {
+  private drawWeapons(
+    ctx: CanvasRenderingContext2D,
+    player: Player,
+    s: number,
+    /** -1 left half, 1 right half, 0 centred: where a shared screen's strips go. */
+    side = 0,
+    label = '',
+  ): void {
     const slots = WEAPON_ORDER.filter((id) => player.weapons.get(id)?.unlocked);
-    const slotWidth = 64 * s;
+    const slotWidth = (side === 0 ? 64 : 52) * s;
     const slotHeight = 34 * s;
     const gap = 5 * s;
     const totalWidth = slots.length * slotWidth + (slots.length - 1) * gap;
-    let x = (ctx.canvas.width - totalWidth) / 2;
+    const centre = side === 0 ? ctx.canvas.width / 2 : ctx.canvas.width * (side < 0 ? 0.27 : 0.73);
+    let x = centre - totalWidth / 2;
     const y = ctx.canvas.height - 16 * s - slotHeight;
+    if (label) {
+      ctx.font = `700 ${9 * s}px ${BODY}`;
+      ctx.textAlign = 'center';
+      this.text(ctx, label, centre, y - 6 * s, BRASS_BRIGHT, s);
+      ctx.textAlign = 'left';
+    }
 
     for (const id of slots) {
       const slot = player.weapons.get(id)!;

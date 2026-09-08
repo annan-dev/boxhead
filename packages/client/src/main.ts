@@ -47,6 +47,9 @@ import { addCharacterHeads } from './render/HeadArt.js';
  */
 const VIEW_WORLD_WIDTH = 720;
 const VIEW_WORLD_HEIGHT = 460;
+/** Two players on one screen see this much more arena. */
+const SHARED_SCREEN_VIEW = 1.3;
+let viewScale = 1;
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 app.innerHTML = `
@@ -347,10 +350,15 @@ function bind(session: Session, characterId: string): void {
   // Older art packs carry no floor extent; the whole map stands in for it.
   const bounds = room.floorBounds ?? { x: 0, y: 0, w: room.width, h: room.height };
   const camera = new Camera(canvas.width, canvas.height, bounds);
-  camera.resize(canvas.width, canvas.height, VIEW_WORLD_WIDTH, VIEW_WORLD_HEIGHT);
+  const seats = session instanceof LocalSession ? session.localSeats : 1;
+  viewScale = seats >= 2 ? SHARED_SCREEN_VIEW : 1;
+  input.setLocalPlayers(seats);
+  camera.resize(canvas.width, canvas.height, VIEW_WORLD_WIDTH * viewScale, VIEW_WORLD_HEIGHT * viewScale);
   const player = world.players[session.localPlayerIndex] ?? world.players[0];
   if (player) camera.jumpTo(player.x, player.y);
-  const names = session instanceof NetSession ? (index: number) => session.nameOf(index) : () => null;
+  const names = session instanceof NetSession
+    ? (index: number) => session.nameOf(index)
+    : seats >= 2 ? (index: number) => `P${index + 1}` : () => null;
   run = {
     session,
     countsForHighScores: save.countsForHighScores,
@@ -360,6 +368,7 @@ function bind(session: Session, characterId: string): void {
     camera,
     characterId,
   };
+  run.hud.localSeats = seats;
   applyFeelSettings();
   loop.setStepMs(session.stepMs);
   slowMotion = false;
@@ -386,6 +395,7 @@ function startRun(roomId: string, characterId: string): void {
     difficulty: save.difficulty,
     gameSpeed: save.gameSpeed,
     devils: save.devils,
+    ...(save.sharedScreen ? { secondCharacterId: save.secondCharacterId } : {}),
   });
   bind(session, characterId);
   paused = false;
@@ -398,6 +408,11 @@ function startRun(roomId: string, characterId: string): void {
 }
 
 function controlsHint(): string {
+  if (save.sharedScreen) {
+    return input.padSeen
+      ? '<b>P1</b> keyboard + mouse &nbsp; <b>P2</b> gamepad &nbsp; <b>Esc</b> menu'
+      : '<b>P1</b> WASD + mouse &nbsp; <b>P2</b> arrows + Enter &nbsp; <b>Esc</b> menu';
+  }
   if (input.padSeen) {
     return '<b>stick</b> move &nbsp; <b>right stick</b> aim &nbsp; <b>trigger</b> fire &nbsp; <b>start</b> pause';
   }
@@ -422,6 +437,7 @@ function parkRun(): void {
     devils: world.devilsEnabled,
     countsForHighScores: run.countsForHighScores,
     practiceReason: run.practiceReason,
+    ...(session.localSeats >= 2 ? { secondCharacterId: world.players[1]?.characterId ?? save.secondCharacterId } : {}),
     snapshot: world.snapshot(),
     level: world.level,
     score: world.score,
@@ -447,6 +463,7 @@ function continueRun(): void {
       gameSpeed: parked.gameSpeed,
       devils: parked.devils,
       snapshot: parked.snapshot as WorldSnapshot,
+      ...(parked.secondCharacterId ? { secondCharacterId: parked.secondCharacterId } : {}),
     });
   } catch {
     // A snapshot from an older build may not restore; drop it rather than crash.
@@ -589,7 +606,7 @@ function resize(): void {
   canvas.width = width;
   canvas.height = height;
   ctx.imageSmoothingEnabled = false;
-  run?.camera.resize(width, height, VIEW_WORLD_WIDTH, VIEW_WORLD_HEIGHT);
+  run?.camera.resize(width, height, VIEW_WORLD_WIDTH * viewScale, VIEW_WORLD_HEIGHT * viewScale);
 }
 window.addEventListener('resize', resize);
 // Layout can settle after the module runs, so track the element itself.
@@ -745,7 +762,16 @@ const loop = new Loop(
       // Follow whoever is alive if the local player is not, so a fallen or
       // still-seating player can watch the match.
       const target = local && local.state !== 'dead' ? local : world.players.find((p) => p.state === 'alive');
-      if (target) {
+      const seats = run.session instanceof LocalSession ? run.session.localSeats : 1;
+      if (seats >= 2) {
+        // Two on one screen: the camera holds the point between the living.
+        const living = world.players.filter((p) => p.connected && p.state !== 'dead');
+        if (living.length > 0) {
+          const mx = living.reduce((sum, p) => sum + p.x, 0) / living.length;
+          const my = living.reduce((sum, p) => sum + p.y, 0) / living.length;
+          run.camera.follow(mx, my);
+        }
+      } else if (target) {
         // Lean the camera a little toward the aim, so the player sees more
         // of where they are shooting than of what is behind them.
         const lead = target === local && local.state === 'alive' ? aimLead(local) : { x: 0, y: 0 };

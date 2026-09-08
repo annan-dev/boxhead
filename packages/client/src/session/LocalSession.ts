@@ -22,7 +22,12 @@ export interface LocalOptions {
   devils: boolean;
   /** A parked run to pick up where it left off. */
   snapshot?: WorldSnapshot;
+  /** A second player on this screen, with their character. */
+  secondCharacterId?: string;
 }
+
+/** How far apart two players sharing one screen may get, in world pixels. */
+export const SHARED_SCREEN_TETHER = 520;
 
 export class LocalSession implements Session {
   readonly world: World;
@@ -33,6 +38,8 @@ export class LocalSession implements Session {
   /** The preset the run opened on, for the record it leaves behind. */
   readonly difficulty: string;
   readonly startLevel: number;
+  /** Seats driven from this machine. */
+  readonly localSeats: number;
 
   constructor(options: LocalOptions) {
     this.room = options.room;
@@ -40,15 +47,18 @@ export class LocalSession implements Session {
     this.difficulty = difficulty.id;
     this.startLevel = difficulty.startLevel;
     const speed = GAME_SPEEDS.find((s) => s.id === options.gameSpeed) ?? GAME_SPEEDS[1]!;
+    const shared = options.secondCharacterId !== undefined;
+    this.localSeats = shared ? 2 : 1;
     this.world = new World({
       room: options.room,
       seed: Date.now() & 0xffff,
-      playerCount: 1,
-      characters: [options.characterId],
+      playerCount: this.localSeats,
+      characters: shared ? [options.characterId, options.secondCharacterId!] : [options.characterId],
       startLevel: difficulty.startLevel,
       startMultiplier: difficulty.startMultiplier,
       devils: options.devils,
       speedFactor: speed.factor,
+      ...(shared ? { tether: SHARED_SCREEN_TETHER } : {}),
     });
     if (options.snapshot) this.world.restore(options.snapshot);
     // Game speed scales the wall time per step, as the original scaled its
@@ -67,6 +77,11 @@ export class LocalSession implements Session {
     const me = world.players[this.localPlayerIndex];
     const aim = input.aimWorld(camera, me?.x ?? 0, me?.y ?? 0);
     const commands: InputCommand[] = [input.buildCommand(aim.x, aim.y)];
+    if (this.localSeats === 2) {
+      const other = world.players[1];
+      const aimB = input.aimWorldB(other?.x ?? 0, other?.y ?? 0);
+      commands.push(input.buildCommandB(aimB.x, aimB.y));
+    }
     world.step(commands);
     for (const event of world.sounds) present.playSound(event);
     world.sounds.length = 0;
