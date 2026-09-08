@@ -511,6 +511,25 @@ loop.start();
 // Development-only hooks. Vite drops this branch from production builds, so
 // the game never ships an object that reaches into its own internals.
 if (import.meta.env.DEV) {
+  const debugStats = () => {
+    if (!run) return null;
+    const { world } = run.session;
+    const me = world.players[run.session.localPlayerIndex];
+    return {
+      tick: world.tick,
+      enemies: world.enemies.length,
+      kills: world.kills,
+      score: world.score,
+      level: world.level,
+      multiplier: world.multiplier,
+      life: me ? Math.round(me.life) : 0,
+      weapon: me?.current ?? null,
+      gameOver: world.gameOver,
+      simMs: Number(stepAverage.toFixed(2)),
+      drawMs: Number(loop.drawMs.toFixed(2)),
+      poses: run.renderer.cachedPoses,
+    };
+  };
   (window as unknown as Record<string, unknown>).__game = {
     get run() {
       return run;
@@ -562,5 +581,82 @@ if (import.meta.env.DEV) {
         level: world.level,
       };
     },
+    /**
+     * A simple player: aims at the nearest enemy, fires, backs away when
+     * crowded, and keeps the strongest loaded weapon up. Enough to reach the
+     * later waves for screenshots and load tests. `suicide` walks into the
+     * horde instead, for the death and debrief paths.
+     */
+    debugBot(steps: number, opts: { suicide?: boolean } = {}) {
+      if (!run) return null;
+      const { session, camera, renderer, hud } = run;
+      const { world } = session;
+      let nextSwitchTick = 0;
+      for (let i = 0; i < steps; i++) {
+        const command = emptyCommand();
+        const me = world.players[session.localPlayerIndex];
+        if (me && me.state === 'alive') {
+          let nearest: { x: number; y: number; d: number } | null = null;
+          let cx = 0;
+          let cy = 0;
+          let crowd = 0;
+          for (const enemy of world.enemies) {
+            if (enemy.state !== 'alive') continue;
+            const d = Math.hypot(enemy.x - me.x, enemy.y - me.y);
+            if (!nearest || d < nearest.d) nearest = { x: enemy.x, y: enemy.y, d };
+            if (d < 220) {
+              cx += enemy.x;
+              cy += enemy.y;
+              crowd += 1;
+            }
+          }
+          if (nearest) {
+            command.aimX = nearest.x;
+            command.aimY = nearest.y;
+            // Pulse the trigger: a semi-automatic weapon fires on the press, not the hold.
+            command.fire = nearest.d < 420 && i % 2 === 0;
+            const fromX = crowd > 0 ? cx / crowd : nearest.x;
+            const fromY = crowd > 0 ? cy / crowd : nearest.y;
+            const away = Math.atan2(me.y - fromY, me.x - fromX);
+            if (opts.suicide) {
+              command.moveX = Math.sign(Math.round(Math.cos(away + Math.PI) * 2));
+              command.moveY = Math.sign(Math.round(Math.sin(away + Math.PI) * 2));
+            } else if (nearest.d < 150) {
+              // Retreat, drifting toward the arena centre so the bot is not pinned in a corner.
+              const bounds = session.room.floorBounds ?? { x: 0, y: 0, w: session.room.width, h: session.room.height };
+              const toCentre = Math.atan2(bounds.y + bounds.h / 2 - me.y, bounds.x + bounds.w / 2 - me.x);
+              const blend = Math.atan2(Math.sin(away) * 0.7 + Math.sin(toCentre) * 0.3, Math.cos(away) * 0.7 + Math.cos(toCentre) * 0.3);
+              command.moveX = Math.sign(Math.round(Math.cos(blend) * 2));
+              command.moveY = Math.sign(Math.round(Math.sin(blend) * 2));
+            }
+          } else {
+            command.aimX = me.x + 100;
+            command.aimY = me.y;
+          }
+          // Prefer the heaviest gun with ammo; placeables are skipped.
+          if (world.tick >= nextSwitchTick) {
+            nextSwitchTick = world.tick + 50;
+            const preference: Array<[string, number]> = [
+              ['railgun', 0], ['rocket', 8], ['shotgun', 3], ['uzi', 2], ['pistol', 1],
+            ];
+            for (const [id, slot] of preference) {
+              const weapon = me.weapons.get(id as never);
+              if (weapon?.unlocked && (id === 'pistol' || weapon.ammo > 0)) {
+                if (me.current !== id) command.weaponSlot = slot;
+                break;
+              }
+            }
+          }
+        }
+        world.step([command]);
+        world.sounds.length = 0;
+        if (me) camera.follow(me.x, me.y);
+      }
+      camera.interpolate(0);
+      renderer.draw(ctx, camera, 0);
+      hud.draw(ctx, camera);
+      return debugStats();
+    },
+    debugStats,
   };
 }
