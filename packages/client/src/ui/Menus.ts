@@ -235,6 +235,8 @@ const STYLE = `
   .menu.hero .stats { color: #a8987a; }
   .menu.hero .stats b { color: #f3e3b6; }
   .menu.hero .btn { max-width: 360px; }
+  /* The rules under and over the buttons are as wide as the buttons, so their diamonds sit on the same axis. */
+  .menu.hero .rule { max-width: 360px; }
 
   /* Embers rising through the dark, cheap enough to leave running. */
   .embers { position: fixed; inset: 0; pointer-events: none; z-index: 1; overflow: hidden; }

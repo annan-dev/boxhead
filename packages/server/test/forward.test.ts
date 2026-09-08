@@ -4,7 +4,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ROOMS } from '@boxhead/shared';
+import { ROOMS, decodeServerMessage } from '@boxhead/shared';
 import type { NetEvent, ServerMessage } from '@boxhead/shared';
 import { Room } from '../src/Room.js';
 
@@ -12,13 +12,19 @@ test('a banner and a popup are forwarded once, and a sound after a burst still a
   const received: ServerMessage[] = [];
   // Publish every tick, so what each step forwards is visible at once.
   const room = new Room({ id: 'fwd', rooms: ROOMS, maxPlayers: 2, snapshotInterval: 1 });
-  room.join('A', 'alpha', 'swat', (message) => received.push(message));
+  // The room hands its sockets encoded frames; decode them as a client would.
+  room.join('A', 'alpha', 'swat', (frame) => {
+    const message = decodeServerMessage(frame as never);
+    if (message) received.push(message);
+  });
   room.join('B', 'beta', 'swat', () => {});
   room.setReady('B', true);
   room.configure('A', { difficulty: 'expert' });
   assert.ok(room.start('A'));
   const world = room.world!;
-  const stepper = room as unknown as { step(): void };
+  // Step the world and publish what it forwarded, as the room's clock does each tick.
+  const inner = room as unknown as { step(): void; publish(): void };
+  const stepper = { step: () => { inner.step(); inner.publish(); } };
   const events = (): NetEvent[] => received.flatMap((m) => (m.type === 'snapshot' ? m.events : []));
 
   // The opening banner is already in the world; three ticks must forward it exactly once.
