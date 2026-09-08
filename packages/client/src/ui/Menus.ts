@@ -26,6 +26,7 @@ import { UNLOCK_CLEARS, UNLOCK_LEVEL } from '../state/SaveData.js';
 import { assetUrl } from '../assets/AssetSource.js';
 import { CHARACTER_PALETTES } from '../render/HeadArt.js';
 import { TitleArt } from './TitleArt.js';
+import { firstGamepad } from '../input/Input.js';
 
 export type Screen =
   | 'title'
@@ -467,6 +468,90 @@ export class Menus {
       if (this.current === 'lobby') return;
       this.show('title');
     });
+
+    // Arrow keys walk the focus through a screen, so the menus work without
+    // a mouse; a gamepad does the same through the poller below.
+    window.addEventListener('keydown', (event) => {
+      if (this.current === 'none') return;
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'SELECT')) return;
+      if (event.code === 'ArrowDown' || event.code === 'ArrowRight') {
+        event.preventDefault();
+        this.moveFocus(1);
+      } else if (event.code === 'ArrowUp' || event.code === 'ArrowLeft') {
+        event.preventDefault();
+        this.moveFocus(-1);
+      }
+    });
+    window.setInterval(() => this.pollPad(), 50);
+  }
+
+  /** Everything on the current screen that can take focus, in reading order. */
+  private focusables(): HTMLElement[] {
+    const nodes = this.root.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), select:not([disabled]), input:not([disabled]), a[href]',
+    );
+    return Array.from(nodes).filter((el) => el.offsetParent !== null);
+  }
+
+  private moveFocus(delta: number): void {
+    const items = this.focusables();
+    if (items.length === 0) return;
+    const active = document.activeElement as HTMLElement | null;
+    const at = active ? items.indexOf(active) : -1;
+    const next = at < 0 ? (delta > 0 ? 0 : items.length - 1) : (at + delta + items.length) % items.length;
+    const target = items[next]!;
+    target.focus();
+    target.scrollIntoView({ block: 'nearest' });
+  }
+
+  private padHeld = new Set<number>();
+  private padRepeat = 0;
+
+  /** D-pad or left stick moves focus, A activates, B backs out, Start resumes a pause. */
+  private pollPad(): void {
+    if (this.current === 'none') {
+      this.padHeld.clear();
+      return;
+    }
+    const pad = firstGamepad();
+    if (!pad) return;
+    const now = new Set<number>();
+    pad.buttons.forEach((b, i) => {
+      if (b.pressed || b.value > 0.5) now.add(i);
+    });
+    const y = pad.axes[1] ?? 0;
+    if (y < -0.5) now.add(12);
+    if (y > 0.5) now.add(13);
+    const rose = (i: number): boolean => now.has(i) && !this.padHeld.has(i);
+
+    // Held directions repeat slowly, so a long list can be walked.
+    const vertical = now.has(12) ? -1 : now.has(13) ? 1 : 0;
+    if (vertical !== 0 && (rose(12) || rose(13) || ++this.padRepeat > 6)) {
+      this.padRepeat = rose(12) || rose(13) ? -4 : 0;
+      this.moveFocus(vertical);
+    }
+    if (vertical === 0) this.padRepeat = 0;
+
+    if (rose(0)) {
+      const active = document.activeElement as HTMLElement | null;
+      if (active && this.root.contains(active)) {
+        if (active.tagName === 'SELECT') {
+          // Step the choice on; a native dropdown cannot be driven from here.
+          const select = active as HTMLSelectElement;
+          select.selectedIndex = (select.selectedIndex + 1) % select.options.length;
+          select.dispatchEvent(new Event('change', { bubbles: true }));
+        } else {
+          active.click();
+        }
+      } else {
+        this.moveFocus(1);
+      }
+    }
+    if (rose(1) || rose(9)) {
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', bubbles: true, cancelable: true }));
+    }
+    this.padHeld = now;
   }
 
   get screen(): Screen {
@@ -818,6 +903,8 @@ export class Menus {
         <dt>R</dt><dd>restart the run (while paused)</dd>
         <dt>M</dt><dd>mute</dd>
         <dt>F3</dt><dd>performance stats</dd>
+        <dt>Gamepad</dt><dd>left stick or d-pad moves, right stick aims, right trigger or A fires,
+          bumpers cycle weapons, Start pauses; in the menus the d-pad moves, A chooses, B goes back</dd>
       </dl>
       <h2>Surviving</h2>
       <dl class="keys">

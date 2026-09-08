@@ -320,7 +320,15 @@ export class Hud {
     this.text(ctx, world.score.toLocaleString(), x + 10 * s, y + 23 * s, BONE, s);
 
     ctx.font = `700 ${8 * s}px ${BODY}`;
-    this.text(ctx, `LEVEL ${world.level}   ·   ${world.kills} KILLS`, x + 10 * s, y + 34 * s, BRASS_BRIGHT, s);
+    const left = world.waveRemaining;
+    this.text(
+      ctx,
+      `LEVEL ${world.level}   ·   ${left} LEFT   ·   ${world.kills} KILLS`,
+      x + 10 * s,
+      y + 34 * s,
+      BRASS_BRIGHT,
+      s,
+    );
 
     // The multiplier swells for a few frames each time it climbs.
     const ease = this.pop > 0 ? Math.sin((this.pop / POP_FRAMES) * Math.PI) : 0;

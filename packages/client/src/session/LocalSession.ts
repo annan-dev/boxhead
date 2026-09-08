@@ -58,8 +58,10 @@ export class LocalSession implements Session {
 
   step(input: Input, camera: Camera, present: Presenter): void {
     const { world } = this;
-    // The pointer aims in world space, so it must be unprojected first.
-    const aim = camera.screenToWorld(input.pointerX, input.pointerY);
+    // The pointer aims in world space, so it must be unprojected first; a
+    // pad aims relative to the player.
+    const me = world.players[this.localPlayerIndex];
+    const aim = input.aimWorld(camera, me?.x ?? 0, me?.y ?? 0);
     const commands: InputCommand[] = [input.buildCommand(aim.x, aim.y)];
     world.step(commands);
     for (const event of world.sounds) present.playSound(event);

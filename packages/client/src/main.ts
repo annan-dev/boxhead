@@ -268,7 +268,13 @@ function startRun(roomId: string, characterId: string): void {
   input.clearLatches();
   menus.inMatch = false;
   menus.show('none');
-  showHint('<b>WASD</b> move &nbsp; <b>mouse</b> aim &nbsp; <b>click</b> fire &nbsp; <b>Esc</b> menu');
+  showHint(controlsHint());
+}
+
+function controlsHint(): string {
+  return input.padSeen
+    ? '<b>stick</b> move &nbsp; <b>right stick</b> aim &nbsp; <b>trigger</b> fire &nbsp; <b>start</b> pause'
+    : '<b>WASD</b> move &nbsp; <b>mouse</b> aim &nbsp; <b>click</b> fire &nbsp; <b>Esc</b> menu';
 }
 
 function connect(address: string, name: string, characterId: string): void {
@@ -288,7 +294,7 @@ function connect(address: string, name: string, characterId: string): void {
       paused = false;
       input.clearLatches();
       menus.show('none');
-      showHint('<b>WASD</b> move &nbsp; <b>mouse</b> aim &nbsp; <b>click</b> fire &nbsp; <b>Esc</b> menu');
+      showHint(controlsHint());
     },
     onNet: (state, detail) => {
       netStatus = state === 'joined' ? 'connected' : detail || state;

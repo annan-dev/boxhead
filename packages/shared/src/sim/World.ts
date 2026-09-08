@@ -327,6 +327,16 @@ export class World {
     return this.peakMultiplier;
   }
 
+  /** Creatures still to kill this level: unspawned plus those still standing. */
+  get waveRemaining(): number {
+    const queued =
+      Math.max(0, this.zombieTotal() - this.spawnedThisLevel) +
+      Math.max(0, this.devilTotal() - this.devilsSpawned);
+    let standing = 0;
+    for (const enemy of this.enemies) if (enemy.state === 'alive') standing += 1;
+    return queued + standing;
+  }
+
   // ---- identity -----------------------------------------------------------
 
   private allocId(): number {

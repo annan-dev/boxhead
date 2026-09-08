@@ -286,7 +286,8 @@ export class NetSession implements Session {
       return;
     }
 
-    const aim = camera.screenToWorld(input.pointerX, input.pointerY);
+    const me = this.world.players[this.localPlayerIndex];
+    const aim = input.aimWorld(camera, me?.x ?? 0, me?.y ?? 0);
     const command = input.buildCommand(aim.x, aim.y);
     const stamped = { tick: this.world.tick + 1, command };
     this.history.push(stamped);
