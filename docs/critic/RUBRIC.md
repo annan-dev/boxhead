@@ -55,7 +55,9 @@ unless a whole feature that was absent (scored 3 or less) has been added.
    which starts a real server, joins it from two headless browsers, readies
    and starts the match and drives both seats for a few seconds. Look at
    `coop-lobby.png`, `coop-host.png` and `coop-guest.png`, and read `coop.json`
-   for each client's round trip, unacknowledged commands and corrections.
+   for each client's round trip, unacknowledged commands and corrections, and
+   its `reconnect` block: the guest's socket is closed mid-wave and the seat it
+   came back to, its state and the ticks it went on to simulate are reported.
 6. Read whatever code the change touched, and play-read the paths it affects.
 7. Score every dimension. Copy the previous score unless you can cite what
    changed it. Cite the evidence next to each score.
