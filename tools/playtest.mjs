@@ -27,7 +27,9 @@ const url = opt('url', 'http://localhost:5180/');
 const out = opt('out', 'shots');
 const width = Number(opt('width', 1280));
 const height = Number(opt('height', 720));
-const FLAGS = new Set(['--url', '--out', '--width', '--height']);
+/** `--fairness N`: instead of screenshots, play N bot runs per difficulty and report how long each lasted. */
+const fairnessRuns = Number(opt('fairness', 0));
+const FLAGS = new Set(['--url', '--out', '--width', '--height', '--fairness']);
 const wanted = args.filter((a, i) => !a.startsWith('--') && !FLAGS.has(args[i - 1]));
 
 const CHROME = [
@@ -74,6 +76,13 @@ const HELPERS = `
     g.loop.callbacks.step();
   }
   function bot(ticks, opts) { g.debugBot(ticks, opts || {}); }
+  /** Play a difficulty with the bot until it dies or the tick limit, and say how it went. */
+  function fairness(difficulty, roomIndex, maxTicks) {
+    run(roomIndex, difficulty);
+    let stats = g.debugStats();
+    while (!stats.gameOver && stats.tick < maxTicks) stats = g.debugBot(100, {});
+    return stats;
+  }
   async function debrief() {
     for (let i = 0; i < 400 && g.menus.screen !== 'debrief'; i++) {
       g.loop.callbacks.step();
@@ -108,6 +117,11 @@ async function main() {
     await cdp.send('Runtime.enable');
     await cdp.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
 
+    if (fairnessRuns > 0) {
+      await runFairness(cdp);
+      cdp.close();
+      return;
+    }
     const names = wanted.length > 0 ? wanted : Object.keys(SCENARIOS);
     const results = [];
     for (const name of names) {
@@ -143,6 +157,45 @@ async function main() {
     chrome.kill();
     setTimeout(() => rmSync(profile, { recursive: true, force: true }), 500);
   }
+}
+
+/**
+ * The difficulty curve, measured: the bot plays each preset a few times on
+ * the first room and the median survival says whether a change made the
+ * opening harsher or kinder. Print a table and keep the numbers.
+ */
+async function runFairness(cdp) {
+  const presets = ['beginner', 'intermediate', 'expert', 'nightmare'];
+  const rows = [];
+  for (const preset of presets) {
+    const runs = [];
+    for (let i = 0; i < fairnessRuns; i++) {
+      const loaded = cdp.waitFor('Page.loadEventFired');
+      await cdp.send('Page.navigate', { url });
+      await loaded;
+      await evaluate(
+        cdp,
+        `(async () => { for (let i = 0; i < 400 && !window.__game; i++) await new Promise((r) => setTimeout(r, 50)); })()`,
+      );
+      const stats = await evaluate(cdp, `(async () => { ${HELPERS} return fairness('${preset}', 0, 9000); })()`);
+      runs.push(stats);
+    }
+    const ticks = runs.map((r) => r.tick).sort((a, b) => a - b);
+    const median = ticks[Math.floor(ticks.length / 2)];
+    const row = {
+      preset,
+      runs: runs.length,
+      medianSeconds: Math.round(median / 50),
+      minSeconds: Math.round(ticks[0] / 50),
+      maxSeconds: Math.round(ticks[ticks.length - 1] / 50),
+      survived: runs.filter((r) => !r.gameOver).length,
+      medianKills: runs.map((r) => r.kills).sort((a, b) => a - b)[Math.floor(runs.length / 2)],
+      levels: runs.map((r) => r.level),
+    };
+    rows.push(row);
+    console.log(JSON.stringify(row));
+  }
+  writeFileSync(join(out, 'fairness.json'), JSON.stringify(rows, null, 2));
 }
 
 async function waitForTarget(port) {

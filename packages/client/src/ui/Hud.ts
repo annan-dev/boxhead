@@ -203,10 +203,19 @@ export class Hud {
       ctx.translate(x, y);
       ctx.rotate(marker.angle);
       ctx.beginPath();
-      ctx.moveTo(size, 0);
-      ctx.lineTo(-size * 0.7, -size * 0.75);
-      ctx.lineTo(-size * 0.3, 0);
-      ctx.lineTo(-size * 0.7, size * 0.75);
+      if (marker.devil) {
+        // A devil's marker is a diamond with a point on the way, so it is
+        // told apart by shape as well as colour.
+        ctx.moveTo(size * 1.1, 0);
+        ctx.lineTo(0, -size * 0.8);
+        ctx.lineTo(-size * 0.7, 0);
+        ctx.lineTo(0, size * 0.8);
+      } else {
+        ctx.moveTo(size, 0);
+        ctx.lineTo(-size * 0.7, -size * 0.75);
+        ctx.lineTo(-size * 0.3, 0);
+        ctx.lineTo(-size * 0.7, size * 0.75);
+      }
       ctx.closePath();
       ctx.fillStyle = marker.devil ? `rgba(255,140,40,${alpha})` : `rgba(224,17,31,${alpha})`;
       ctx.strokeStyle = `rgba(0,0,0,${alpha * 0.8})`;

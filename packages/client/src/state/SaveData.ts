@@ -319,12 +319,19 @@ export class SaveData {
     }
   }
 
-  /** Bind an action to one key, replacing whatever it had. */
-  setKey(action: string, code: string): void {
+  /**
+   * Bind an action to a key: replacing what it had, or adding an alternate
+   * beside it. A key serves one action only, so it is taken from wherever
+   * else it was.
+   */
+  setKey(action: string, code: string, defaults: Record<string, string[]>, add = false): void {
     const keys = { ...this.keys };
-    // A key can serve one action only; take it from wherever it was.
-    for (const other of Object.keys(keys)) keys[other] = keys[other]!.filter((c) => c !== code);
-    keys[action] = [code];
+    for (const other of Object.keys(defaults)) {
+      const current = keys[other] ?? defaults[other] ?? [];
+      keys[other] = current.filter((c) => c !== code);
+    }
+    const kept = add ? (keys[action] ?? []) : [];
+    keys[action] = [...kept.filter((c) => c !== code), code].slice(-2);
     this.state.keys = keys;
     this.persist();
   }

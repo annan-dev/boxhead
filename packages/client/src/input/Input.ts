@@ -76,8 +76,23 @@ export const ACTION_LABELS: Record<BindableAction, string> = {
   pause: 'Quick pause',
 };
 
+/** Keys the game keeps for itself; binding one would take it away. */
+export const RESERVED_KEYS = new Set([
+  'Escape', 'KeyR', 'KeyM', 'F3', 'Tab',
+  'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9', 'Digit0',
+]);
+
+/** The pointer's other buttons, bindable like keys: `Mouse1` is the middle, `Mouse2` the right. */
+export function mouseCode(button: number): string | null {
+  return button === 1 ? 'Mouse1' : button === 2 ? 'Mouse2' : button === 3 ? 'Mouse3' : button === 4 ? 'Mouse4' : null;
+}
+
 /** A key code as a player would read it on the cap. */
 export function keyName(code: string): string {
+  if (code === 'Mouse1') return 'Middle click';
+  if (code === 'Mouse2') return 'Right click';
+  if (code === 'Mouse3') return 'Mouse 4';
+  if (code === 'Mouse4') return 'Mouse 5';
   if (code.startsWith('Key')) return code.slice(3);
   if (code.startsWith('Digit')) return code.slice(5);
   const names: Record<string, string> = {
@@ -343,14 +358,26 @@ export class Input {
   private readonly onPointerDown = (event: PointerEvent): void => {
     if (!this.enabled) return;
     this.updatePointer(event);
-    // Only the primary button fires; the context menu is suppressed, so a
-    // right click would otherwise shoot.
-    if (event.button !== 0) return;
-    this.pointerDown = true;
+    // The primary button fires; the others do whatever they are bound to,
+    // held like keys. The context menu is suppressed, so right click is free.
+    if (event.button === 0) {
+      this.pointerDown = true;
+      return;
+    }
+    const code = mouseCode(event.button);
+    if (!code) return;
+    event.preventDefault();
+    this.down.add(code);
+    const action = this.seatAAction(code);
+    if (action === 'next') this.pendingNext = true;
+    if (action === 'prev') this.pendingPrev = true;
+    if (action === 'pause') this.pausePressed = true;
   };
 
-  private readonly onPointerUp = (): void => {
-    this.pointerDown = false;
+  private readonly onPointerUp = (event: PointerEvent): void => {
+    if (event.button === 0) this.pointerDown = false;
+    const code = mouseCode(event.button);
+    if (code) this.down.delete(code);
   };
 
   private readonly onPointerMove = (event: PointerEvent): void => {

@@ -46,9 +46,14 @@ unless a whole feature that was absent (scored 3 or less) has been added.
 3. Run `node tools/playtest.mjs --url http://localhost:5180/ --out <dir>` and look
    at every screenshot; read `results.json` for sim/draw timings and the bot's
    outcome.
-4. Read whatever code the change touched, and play-read the paths it affects.
-5. Score every dimension. Copy the previous score unless you can cite what
+4. Run `node tools/playtest.mjs --url http://localhost:5180/ --out <dir> --fairness 3`
+   and read `fairness.json`: median seconds survived per preset by the bot.
+   Compare with the previous loop's numbers when judging pacing; a preset
+   the bot cannot survive is not by itself unfair (the bot is no expert),
+   but a change in the numbers is a change in the curve.
+5. Read whatever code the change touched, and play-read the paths it affects.
+6. Score every dimension. Copy the previous score unless you can cite what
    changed it. Cite the evidence next to each score.
-6. List the three highest-value fixes for the next loop, ranked by expected
+7. List the three highest-value fixes for the next loop, ranked by expected
    score gain per hour of work, each with the dimension it targets.
-7. Append the entry to `SCORES.md` in the format used there.
+8. Append the entry to `SCORES.md` in the format used there.

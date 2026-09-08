@@ -26,7 +26,7 @@ import { UNLOCK_CLEARS, UNLOCK_LEVEL } from '../state/SaveData.js';
 import { assetUrl } from '../assets/AssetSource.js';
 import { CHARACTER_PALETTES } from '../render/HeadArt.js';
 import { TitleArt } from './TitleArt.js';
-import { ACTION_LABELS, DEFAULT_BINDINGS, firstGamepad, keyName, type BindableAction } from '../input/Input.js';
+import { ACTION_LABELS, DEFAULT_BINDINGS, RESERVED_KEYS, firstGamepad, keyName, mouseCode, type BindableAction } from '../input/Input.js';
 
 export type Screen =
   | 'title'
@@ -1068,7 +1068,9 @@ export class Menus {
         <button class="key" id="resetTips" type="button">show them again</button>
       </div>
       <h2 style="margin-top:30px">Controls</h2>
-      <p class="hint" style="margin:0 0 12px">Click a key to change it, then press the new one. Weapons stay on 1 to 0.</p>
+      <p class="hint" style="margin:0 0 12px">Click a key and press the new one, or a mouse button. Shift-click to add a second key
+        beside the first. Weapons stay on 1 to 0; Escape, R, M and F3 are the game's own.</p>
+      <div id="keyNote" class="note bad" hidden></div>
       <div class="keygrid">
         ${(Object.keys(DEFAULT_BINDINGS) as BindableAction[])
           .map((action) => {
@@ -1174,21 +1176,46 @@ export class Menus {
       devilsBadge.hidden = devils.checked;
     });
 
-    for (const button of inner.querySelectorAll<HTMLButtonElement>('button.key')) {
-      button.addEventListener('click', () => {
+    const keyNote = inner.querySelector<HTMLDivElement>('#keyNote')!;
+    for (const button of inner.querySelectorAll<HTMLButtonElement>('button.key[data-action]')) {
+      button.addEventListener('click', (click) => {
         const action = button.dataset.action!;
-        button.textContent = 'press a key';
+        const add = click.shiftKey;
+        button.textContent = add ? 'press a second key' : 'press a key';
         button.classList.add('listening');
-        const capture = (event: KeyboardEvent): void => {
-          event.preventDefault();
-          event.stopImmediatePropagation();
-          window.removeEventListener('keydown', capture, true);
-          if (event.code !== 'Escape') this.save.setKey(action, event.code);
+        const finish = (code: string | null): void => {
+          window.removeEventListener('keydown', onKey, true);
+          window.removeEventListener('mousedown', onMouse, true);
+          if (code && RESERVED_KEYS.has(code)) {
+            keyNote.textContent = `${keyName(code)} is the game's own key and cannot be bound.`;
+            keyNote.hidden = false;
+            button.textContent = (this.save.keys[action] ?? DEFAULT_BINDINGS[action as BindableAction])
+              .map((k) => keyName(k)).join(' / ');
+            button.classList.remove('listening');
+            return;
+          }
+          if (code) this.save.setKey(action, code, DEFAULT_BINDINGS, add);
           this.callbacks.onKeys();
           this.renderOptions();
           inner.querySelector<HTMLButtonElement>(`button.key[data-action="${action}"]`)?.focus();
         };
-        window.addEventListener('keydown', capture, true);
+        const onKey = (event: KeyboardEvent): void => {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          finish(event.code === 'Escape' ? null : event.code);
+        };
+        const onMouse = (event: MouseEvent): void => {
+          // The click that opened the capture is already over; a primary
+          // click elsewhere simply cancels.
+          if (event.target === button) return;
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          finish(mouseCode(event.button));
+        };
+        window.setTimeout(() => {
+          window.addEventListener('keydown', onKey, true);
+          window.addEventListener('mousedown', onMouse, true);
+        }, 0);
       });
     }
     inner.querySelector<HTMLButtonElement>('#resetKeys')!.addEventListener('click', () => {
