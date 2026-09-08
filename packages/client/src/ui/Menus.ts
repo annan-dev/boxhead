@@ -6,11 +6,11 @@
  * the browser already does text, focus, keyboard navigation and scrolling far
  * better than hand-rolled canvas widgets would.
  *
- * The look follows the original's own screens, decoded from the SWF: white
- * paper, heavy black uppercase headings, red for anything you can press, grey
- * panels framing a white sheet for the room grid, the brown floor band along
- * the bottom of the title, a grey skull watermarking the debrief, and the
- * pause screen as a dark overlay with a brown band over the frozen game.
+ * The look keeps the original's ingredients -- the cream floor, blood red for
+ * anything you can press, the boxy silhouettes, the skull behind the debrief,
+ * the floor band -- and sets them at night: dark scorched concrete, slab
+ * buttons with a hard bevel, brass-framed panels, and embers drifting up. The
+ * rules live in one stylesheet so every screen reads as the same game.
  *
  * Arena thumbnails and character portraits are the exception to "no canvas":
  * both are drawn from the same data the game uses, so what the menu shows is
@@ -101,130 +101,262 @@ export interface MenuCallbacks {
   onLobbyStart: () => void;
 }
 
-const DISPLAY = '"Arial Black", Impact, "Segoe UI Black", "Helvetica Neue", Arial, sans-serif';
+const DISPLAY = '"Anton", Impact, "Haettenschweiler", "Arial Narrow Bold", "Arial Black", sans-serif';
 const BODY = '"Segoe UI", system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif';
 
+/** Concrete grain: a tiny SVG turbulence tile, inlined so it works from a file on disk. */
+const GRAIN =
+  "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'>" +
+  "<filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/>" +
+  "<feColorMatrix values='0 0 0 0 0.55 0 0 0 0 0.52 0 0 0 0 0.47 0 0 0 .18 0'/></filter>" +
+  "<rect width='160' height='160' filter='url(%23n)'/></svg>\")";
+
+/**
+ * The look: a scorched arena at night. Boxhead's own ingredients stay -- the
+ * cream floor, the blood red, the boxy silhouettes -- but the screens are dark
+ * and cinematic rather than paper. Buttons are heavy slabs with a hard bevel
+ * and a pressed state (the Minecraft feel), panels carry a thin brass frame
+ * with bracketed corners and a warm glow on hover (the League feel), and
+ * embers drift up behind everything. One set of rules covers every screen.
+ */
 const STYLE = `
   .menu {
     position: fixed; inset: 0; z-index: 20; display: none;
-    background: #ffffff; color: #141414; overflow-y: auto;
+    color: #e9e2d0; overflow-y: auto; overflow-x: hidden;
     font: 15px/1.45 ${BODY};
+    background: #0b0b0d;
+    --red: #e0111f; --red-hi: #ff3040; --red-lo: #7a0810;
+    --bone: #e9e2d0; --bone-dim: #b9b2a2; --muted: #857f72;
+    --brass: #c9a75a; --brass-dim: rgba(201,167,90,.45); --brass-glow: rgba(201,167,90,.28);
+    --slab: #1c1c20; --slab-hi: #2b2b31; --slab-lo: #0a0a0c;
+    --panel: rgba(16,16,19,.86);
   }
-  .menu.on { display: block; animation: menuIn .16s ease-out; }
-  @keyframes menuIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-  /* The floor band along the bottom of the original's title screen. */
-  .menu::after { content: ''; position: fixed; left: 0; right: 0; bottom: 0; height: 34px;
-                 background: #8f3a14; border-top: 5px solid #5a230a; pointer-events: none; }
-  .menu .inner { max-width: 940px; margin: 0 auto; padding: 22px 28px 70px; position: relative; }
+  .menu.on { display: block; animation: menuIn .22s ease-out; }
+  @keyframes menuIn { from { opacity: 0; transform: scale(1.015); } to { opacity: 1; transform: none; } }
+
+  /* Backdrop: vignette over concrete grain, a smoulder along the floor, and the
+     original's floor band recast as a dark, scorched strip. */
+  .menu .bg { position: fixed; inset: 0; pointer-events: none; z-index: 0;
+              background:
+                radial-gradient(ellipse 90% 70% at 50% 110%, rgba(224,17,31,.30), transparent 60%),
+                radial-gradient(ellipse 120% 90% at 50% 40%, rgba(255,255,255,.035), transparent 65%),
+                ${GRAIN}, #0b0b0d; }
+  .menu .bg::before { content: ''; position: absolute; inset: 0;
+              background: radial-gradient(ellipse 70% 60% at 50% 45%, transparent 40%, rgba(0,0,0,.78) 100%); }
+  .menu .bg::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 30px;
+              background: linear-gradient(#3a1a0e, #23100a); border-top: 3px solid #5d2413;
+              box-shadow: 0 -12px 30px rgba(224,17,31,.18); }
+  .menu.overlay .bg { background: rgba(4,4,6,.74); }
+  .menu.overlay .bg::before { display: none; }
+  .menu.overlay .bg::after { top: 0; bottom: auto; height: 42px;
+              background: linear-gradient(#8b1a12, #5a0d0a); border-top: 0; border-bottom: 3px solid #2a0605;
+              box-shadow: 0 6px 24px rgba(0,0,0,.6); }
+
+  /* Embers rising through the dark, cheap enough to leave running. */
+  .embers { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; }
+  .menu.overlay .embers { display: none; }
+  .ember { position: absolute; bottom: -10px; width: 3px; height: 3px; border-radius: 50%;
+           background: #ff7a4a; box-shadow: 0 0 8px 2px rgba(255,90,50,.55); opacity: 0;
+           animation: rise linear infinite; }
+  @keyframes rise {
+    0% { transform: translate(0, 0) scale(1); opacity: 0; }
+    10% { opacity: .9; }
+    60% { opacity: .55; }
+    100% { transform: translate(var(--drift), -105vh) scale(.4); opacity: 0; }
+  }
+
+  .menu .inner { position: relative; z-index: 1; max-width: 960px; margin: 0 auto; padding: 26px 30px 70px; }
   .menu.centered .inner { text-align: center; }
   .menu.centered .btn { margin-left: auto; margin-right: auto; text-align: center; }
 
-  .menu h1 { margin: 0; font: 900 58px/1 ${DISPLAY}; text-transform: uppercase; color: #141414;
-             letter-spacing: .01em; }
-  .menu img.logo { display: block; width: min(460px, 78%); height: auto; margin: 0 auto 2px;
-                   filter: drop-shadow(0 6px 10px rgba(0,0,0,.18)); }
-  .menu .sub { margin: 6px 0 26px; color: #7b7b7b; letter-spacing: .2em; text-transform: uppercase;
-               font-size: 12px; font-weight: 700; }
-  .menu h2 { font: 900 22px/1.1 ${DISPLAY}; text-transform: uppercase; color: #141414; margin: 0 0 16px; }
-  .menu .back { color: #c9001a; cursor: pointer; background: none; border: 0; padding: 0;
-                margin-bottom: 22px; font: 800 13px ${BODY}; text-transform: uppercase; letter-spacing: .12em; }
-  .menu .back:hover { color: #141414; }
+  /* Type: the heading is a slab of condensed caps with a blood underline;
+     labels are brass small caps, the League way of marking a section. */
+  .menu h1 { margin: 0; font: 400 64px/1 ${DISPLAY}; text-transform: uppercase; color: var(--bone);
+             letter-spacing: .03em; text-shadow: 0 3px 0 #000, 0 0 30px rgba(224,17,31,.35); }
+  .menu img.logo { display: block; width: min(460px, 78%); height: auto; margin: 4px auto 0;
+                   filter: drop-shadow(0 8px 0 rgba(0,0,0,.55)) drop-shadow(0 0 28px rgba(224,17,31,.45)); }
+  .menu .sub { margin: 8px 0 16px; color: var(--brass); letter-spacing: .32em; text-transform: uppercase;
+               font: 700 11px ${BODY}; }
+  .menu .sub::before, .menu .sub::after { content: '\\25C6'; font-size: 8px; vertical-align: 2px; margin: 0 12px;
+               color: var(--brass-dim); }
+  .menu h2 { position: relative; font: 400 30px/1.05 ${DISPLAY}; text-transform: uppercase; color: var(--bone);
+             letter-spacing: .04em; margin: 0 0 18px; padding-bottom: 10px; text-shadow: 0 2px 0 #000; }
+  .menu h2::after { content: ''; position: absolute; left: 0; bottom: 0; width: 56px; height: 4px;
+             background: var(--red); box-shadow: 0 0 12px rgba(224,17,31,.7); }
+  .menu.centered h2::after { left: 50%; transform: translateX(-50%); }
+  .menu .back { color: var(--brass); cursor: pointer; background: none; border: 0; padding: 0;
+                margin-bottom: 20px; font: 700 12px ${BODY}; text-transform: uppercase; letter-spacing: .2em;
+                transition: color .12s, transform .12s; }
+  .menu .back::before { content: '\\25C0'; font-size: 9px; margin-right: 8px; vertical-align: 1px; }
+  .menu .back:hover { color: var(--bone); transform: translateX(-2px); }
 
-  .btn { display: block; width: 100%; max-width: 440px; text-align: left; background: #e2001a; color: #fff;
-         border: 0; border-radius: 5px; padding: 13px 18px 12px; margin: 0 0 13px; cursor: pointer;
-         font: 900 19px/1.15 ${DISPLAY}; text-transform: uppercase; letter-spacing: .03em;
-         box-shadow: 0 5px 0 #7d000f; transition: transform .07s, box-shadow .07s, background .12s; }
-  .btn:hover, .btn:focus { background: #ff1f38; transform: translateY(-2px); box-shadow: 0 7px 0 #7d000f; outline: none; }
-  .btn:active { transform: translateY(3px); box-shadow: 0 2px 0 #7d000f; }
-  .btn .k { display: block; margin-top: 3px; font: 13px/1.3 ${BODY}; text-transform: none; letter-spacing: 0;
-            color: rgba(255,255,255,.88); font-weight: 400; }
-  .btn.secondary { background: #1e1e1e; box-shadow: 0 5px 0 #000; }
-  .btn.secondary:hover, .btn.secondary:focus { background: #383838; box-shadow: 0 7px 0 #000; }
-  .btn.danger { background: #fff; color: #b00016; border: 2px solid #e2001a; box-shadow: 0 5px 0 #d6d6d6; }
-  .btn.danger:hover, .btn.danger:focus { background: #fff3f4; box-shadow: 0 7px 0 #d6d6d6; }
-  .btn.danger .k { color: #8a4a52; }
+  /* Buttons: slabs. A hard bevel, a deep drop, and a press that sinks. */
+  .btn { position: relative; display: block; width: 100%; max-width: 460px; text-align: left;
+         background: linear-gradient(#ff2a3a, #c80f1b 55%, #a80a15); color: #fff;
+         border: 0; border-radius: 2px; padding: 12px 20px 10px 22px; margin: 0 0 12px; cursor: pointer;
+         font: 400 23px/1.1 ${DISPLAY}; text-transform: uppercase; letter-spacing: .06em;
+         text-shadow: 0 2px 0 rgba(0,0,0,.55);
+         box-shadow: inset 0 2px 0 rgba(255,255,255,.28), inset 0 -3px 0 rgba(0,0,0,.35),
+                     inset 2px 0 0 rgba(255,255,255,.12), inset -2px 0 0 rgba(0,0,0,.25),
+                     0 6px 0 #4a0409, 0 10px 22px rgba(0,0,0,.6);
+         transition: transform .06s, box-shadow .06s, filter .12s; }
+  .btn::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 6px;
+         background: rgba(0,0,0,.35); }
+  .btn::after { content: ''; position: absolute; inset: 3px; border: 1px solid rgba(201,167,90,0);
+         pointer-events: none; transition: border-color .12s, box-shadow .12s; }
+  .btn:hover, .btn:focus { filter: brightness(1.12); transform: translateY(-2px); outline: none;
+         box-shadow: inset 0 2px 0 rgba(255,255,255,.28), inset 0 -3px 0 rgba(0,0,0,.35),
+                     inset 2px 0 0 rgba(255,255,255,.12), inset -2px 0 0 rgba(0,0,0,.25),
+                     0 8px 0 #4a0409, 0 14px 28px rgba(0,0,0,.65), 0 0 22px rgba(224,17,31,.35); }
+  .btn:hover::after, .btn:focus::after { border-color: var(--brass-dim); box-shadow: 0 0 10px var(--brass-glow); }
+  .btn:active { transform: translateY(4px); filter: brightness(.95);
+         box-shadow: inset 0 3px 0 rgba(0,0,0,.35), 0 2px 0 #4a0409, 0 4px 10px rgba(0,0,0,.5); }
+  .btn .k { display: block; margin-top: 4px; font: 12px/1.3 ${BODY}; text-transform: uppercase; letter-spacing: .1em;
+            color: rgba(255,255,255,.78); font-weight: 600; text-shadow: none; }
+  .btn.secondary { background: linear-gradient(var(--slab-hi), var(--slab) 55%, #131316); color: var(--bone);
+         box-shadow: inset 0 2px 0 rgba(255,255,255,.09), inset 0 -3px 0 rgba(0,0,0,.5),
+                     inset 2px 0 0 rgba(255,255,255,.05), inset -2px 0 0 rgba(0,0,0,.4),
+                     0 6px 0 #000, 0 10px 22px rgba(0,0,0,.6); }
+  .btn.secondary:hover, .btn.secondary:focus { filter: brightness(1.25);
+         box-shadow: inset 0 2px 0 rgba(255,255,255,.09), inset 0 -3px 0 rgba(0,0,0,.5),
+                     inset 2px 0 0 rgba(255,255,255,.05), inset -2px 0 0 rgba(0,0,0,.4),
+                     0 8px 0 #000, 0 14px 28px rgba(0,0,0,.65), 0 0 18px var(--brass-glow); }
+  .btn.secondary:active { box-shadow: inset 0 3px 0 rgba(0,0,0,.5), 0 2px 0 #000; }
+  .btn.secondary .k { color: var(--bone-dim); }
+  .btn.danger { background: linear-gradient(#232325, #141416); color: #ff5b66;
+         box-shadow: inset 0 0 0 1px rgba(224,17,31,.55), inset 0 -3px 0 rgba(0,0,0,.5), 0 6px 0 #000,
+                     0 10px 22px rgba(0,0,0,.6); }
+  .btn.danger:hover, .btn.danger:focus { filter: brightness(1.2);
+         box-shadow: inset 0 0 0 1px rgba(224,17,31,.9), inset 0 -3px 0 rgba(0,0,0,.5), 0 8px 0 #000,
+                     0 14px 28px rgba(0,0,0,.65), 0 0 18px rgba(224,17,31,.35); }
+  .btn.danger .k { color: #b3767b; }
+  .btn:disabled { cursor: not-allowed; }
 
-  .stats { display: flex; flex-wrap: wrap; gap: 8px 28px; margin-bottom: 26px; color: #6d6d6d;
-           font-size: 12px; text-transform: uppercase; letter-spacing: .1em; font-weight: 700; }
+  /* Stat strip: brass labels, bone numbers. */
+  .stats { display: flex; flex-wrap: wrap; gap: 8px 30px; margin-bottom: 20px; color: var(--muted);
+           font: 700 11px ${BODY}; text-transform: uppercase; letter-spacing: .18em; }
   .menu.centered .stats { justify-content: center; }
-  .stats b { color: #141414; }
+  .stats b { color: var(--bone); font-size: 13px; letter-spacing: .06em; }
 
-  /* The grey panel and white sheet of the original's room select. */
-  .panel { background: #cfcfcf; border-radius: 10px; padding: 14px; }
-  .paper { background: #fff; border-radius: 6px; padding: 14px; }
+  /* Framed panels: a dark sheet with a brass hairline set inside its edge and
+     bracketed corners. The white "paper" of the original becomes the arena
+     floor's cream, kept for the cards' pictures. */
+  .panel { position: relative; background: var(--panel); border: 1px solid rgba(255,255,255,.06);
+           padding: 18px; box-shadow: 0 20px 50px rgba(0,0,0,.6), inset 0 0 0 1px rgba(0,0,0,.6); }
+  .panel::before { content: ''; position: absolute; inset: 6px; border: 1px solid var(--brass-dim);
+           pointer-events: none; }
+  .panel::after { content: ''; position: absolute; inset: 6px; pointer-events: none;
+           background:
+             linear-gradient(var(--brass), var(--brass)) top left / 14px 2px no-repeat,
+             linear-gradient(var(--brass), var(--brass)) top left / 2px 14px no-repeat,
+             linear-gradient(var(--brass), var(--brass)) top right / 14px 2px no-repeat,
+             linear-gradient(var(--brass), var(--brass)) top right / 2px 14px no-repeat,
+             linear-gradient(var(--brass), var(--brass)) bottom left / 14px 2px no-repeat,
+             linear-gradient(var(--brass), var(--brass)) bottom left / 2px 14px no-repeat,
+             linear-gradient(var(--brass), var(--brass)) bottom right / 14px 2px no-repeat,
+             linear-gradient(var(--brass), var(--brass)) bottom right / 2px 14px no-repeat; }
+  .paper { padding: 6px; }
   .grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
-  .card { background: #fff; border: 2px solid #dedede; border-radius: 6px; padding: 8px; cursor: pointer;
-          text-align: left; color: inherit; font: inherit; box-shadow: 0 3px 0 #dedede;
-          transition: transform .07s, border-color .12s, box-shadow .12s; }
-  .card:hover:not(.locked), .card:focus:not(.locked) { border-color: #e2001a; transform: translateY(-2px);
-          box-shadow: 0 6px 0 #f4b6bd; outline: none; }
-  .card.locked { opacity: .42; cursor: not-allowed; }
-  .card.on { border-color: #e2001a; box-shadow: 0 3px 0 #e2001a; }
-  .card canvas, .card img.art { display: block; width: 100%; height: auto; border-radius: 4px; background: #efefef; }
-  /* The display rule above would otherwise beat the hidden attribute, and both would show. */
+  .card { position: relative; background: linear-gradient(#202024, #151518); border: 1px solid #000;
+          padding: 8px; cursor: pointer; text-align: left; color: inherit; font: inherit;
+          box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 4px 0 #000, 0 8px 18px rgba(0,0,0,.5);
+          transition: transform .08s, box-shadow .14s, filter .14s; }
+  .card::after { content: ''; position: absolute; inset: 3px; border: 1px solid transparent; pointer-events: none;
+          transition: border-color .14s, box-shadow .14s; }
+  .card:hover:not(.locked), .card:focus:not(.locked) { transform: translateY(-3px); outline: none;
+          box-shadow: inset 0 1px 0 rgba(255,255,255,.1), 0 7px 0 #000, 0 14px 26px rgba(0,0,0,.6), 0 0 22px var(--brass-glow); }
+  .card:hover:not(.locked)::after, .card:focus:not(.locked)::after { border-color: var(--brass);
+          box-shadow: inset 0 0 14px var(--brass-glow); }
+  .card.locked { filter: grayscale(1) brightness(.45); cursor: not-allowed; }
+  .card.locked::before { content: 'locked'; position: absolute; z-index: 2; top: 34%; left: 50%;
+          transform: translate(-50%, -50%); padding: 4px 12px; background: rgba(8,8,10,.85); color: #d9d2c0;
+          border: 1px solid rgba(233,226,208,.35); font: 700 11px ${BODY}; letter-spacing: .28em;
+          text-transform: uppercase; }
+  .card.on { box-shadow: inset 0 1px 0 rgba(255,255,255,.1), 0 4px 0 #000, 0 8px 18px rgba(0,0,0,.5), 0 0 26px rgba(224,17,31,.45); }
+  .card.on::after { border-color: var(--red); box-shadow: inset 0 0 16px rgba(224,17,31,.35); }
+  .card canvas, .card img.art { display: block; width: 100%; height: auto; background: #e9e2d0;
+          border: 1px solid #000; box-shadow: inset 0 0 0 1px rgba(255,255,255,.08); }
   .card canvas[hidden], .card img.art[hidden] { display: none; }
-  .card .t { margin-top: 8px; font: 900 14px ${DISPLAY}; text-transform: uppercase; color: #141414; }
-  .card .d { color: #7b7b7b; font-size: 12px; margin-top: 2px; }
-  .card .best { color: #b00016; font-size: 12px; margin-top: 2px; font-weight: 700; }
+  .card .t { margin-top: 10px; font: 400 18px ${DISPLAY}; text-transform: uppercase; letter-spacing: .05em;
+             color: var(--bone); text-shadow: 0 2px 0 #000; }
+  .card .d { color: var(--muted); font-size: 11px; margin-top: 2px; text-transform: uppercase; letter-spacing: .1em; }
+  .card .best { color: var(--brass); font-size: 11px; margin-top: 4px; font-weight: 700; text-transform: uppercase;
+                letter-spacing: .1em; }
 
-  .keys { display: grid; grid-template-columns: 140px 1fr; gap: 9px 20px; color: #333; margin-bottom: 26px;
-          max-width: 760px; }
-  .keys dt { color: #b00016; font-weight: 800; text-transform: uppercase; font-size: 12px; letter-spacing: .06em;
-             padding-top: 2px; }
+  /* Lists and forms. */
+  .keys { display: grid; grid-template-columns: 150px 1fr; gap: 10px 22px; color: var(--bone-dim); margin-bottom: 30px;
+          max-width: 780px; }
+  .keys dt { color: var(--brass); font: 700 11px ${BODY}; text-transform: uppercase; letter-spacing: .16em;
+             padding-top: 3px; }
   .keys dd { margin: 0; }
-  .row { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; }
-  .row label { color: #444; min-width: 130px; font-weight: 800; text-transform: uppercase; font-size: 12px;
-               letter-spacing: .08em; }
-  .row input[type=range] { flex: 1; max-width: 260px; accent-color: #e2001a; }
-  .row input[type=checkbox] { width: 18px; height: 18px; accent-color: #e2001a; }
-  .row select { font: 600 14px ${BODY}; padding: 7px 10px; border: 2px solid #dedede; border-radius: 5px;
-                background: #fff; color: #141414; }
-  .row select:focus { border-color: #e2001a; outline: none; }
-  .row input[type=text] { flex: 1; max-width: 340px; font: 600 15px ${BODY}; padding: 8px 10px;
-                          border: 2px solid #dedede; border-radius: 5px; color: #141414; background: #fff;
-                          color-scheme: light; }
-  .row input[type=text]:focus { border-color: #e2001a; outline: none; }
-  .row .hint { color: #7b7b7b; font-size: 12px; }
-  .note { background: #fff3d6; border: 1px solid #f0c76a; color: #8a5a00; border-radius: 5px;
+  .row { display: flex; align-items: center; gap: 16px; margin-bottom: 14px; }
+  .row label { color: var(--brass); min-width: 130px; font: 700 11px ${BODY}; text-transform: uppercase;
+               letter-spacing: .16em; }
+  .row input[type=range] { flex: 1; max-width: 260px; accent-color: var(--red); }
+  .row input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--red); }
+  .row select, .row input[type=text] { font: 600 14px ${BODY}; padding: 9px 12px; border: 1px solid #000;
+                background: linear-gradient(#1d1d21, #141417); color: var(--bone); border-radius: 2px;
+                box-shadow: inset 0 1px 0 rgba(255,255,255,.06), inset 0 0 0 1px rgba(201,167,90,.18), 0 3px 0 #000;
+                color-scheme: dark; }
+  .row input[type=text] { flex: 1; max-width: 340px; }
+  .row select:focus, .row input[type=text]:focus { outline: none;
+                box-shadow: inset 0 1px 0 rgba(255,255,255,.06), inset 0 0 0 1px var(--brass), 0 3px 0 #000, 0 0 14px var(--brass-glow); }
+  .row select:disabled { opacity: .5; }
+  .row .hint { color: var(--muted); font-size: 12px; }
+  .row span, .row p { color: var(--bone-dim); }
+  .note { background: rgba(201,167,90,.09); border: 1px solid var(--brass-dim); color: #e6cf94;
           padding: 10px 14px; margin: 0 0 16px; max-width: 560px; font-size: 13px; line-height: 1.5; }
-  .note.bad { background: #ffe9ec; border-color: #f4b6bd; color: #b00016; }
-  .seats { display: grid; gap: 8px; margin: 0 0 22px; max-width: 560px; }
-  .seat { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 6px;
-          background: #f3f3f3; border: 2px solid #e6e6e6; }
-  .seat.me { border-color: #e2001a; }
-  .seat.empty { color: #9a9a9a; border-style: dashed; }
-  .seat .n { font: 900 15px ${DISPLAY}; text-transform: uppercase; flex: 1; }
-  .seat .c { color: #7b7b7b; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
-  .seat .r { font: 800 11px ${BODY}; text-transform: uppercase; letter-spacing: .08em; padding: 2px 8px;
-             border-radius: 3px; background: #dedede; color: #444; }
-  .seat .r.on { background: #1f9d3a; color: #fff; }
-  .seat .r.host { background: #141414; color: #fff; }
-  .seat .r.away { background: #f0c76a; color: #5a3d00; }
-  .row select:disabled { opacity: .55; }
-  .badge { display: inline-block; margin-left: 10px; padding: 2px 8px; border-radius: 3px;
-           background: #fff3d6; color: #8a5a00; border: 1px solid #f0c76a; font: 700 11px ${BODY};
-           text-transform: uppercase; letter-spacing: .06em; vertical-align: middle; }
-  .badge.strong { background: #e2001a; color: #fff; border-color: #e2001a; }
+  .note.bad { background: rgba(224,17,31,.12); border-color: rgba(224,17,31,.6); color: #ff8791; }
+  .seats { display: grid; gap: 8px; margin: 0 0 24px; max-width: 560px; }
+  .seat { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid #000;
+          background: linear-gradient(#1d1d21, #141417); box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 3px 0 #000; }
+  .seat.me { box-shadow: inset 0 0 0 1px var(--red), 0 3px 0 #000, 0 0 16px rgba(224,17,31,.25); }
+  .seat.empty { color: var(--muted); border-style: dashed; border-color: #2a2a2f; background: none; box-shadow: none; }
+  .seat .n { font: 400 18px ${DISPLAY}; text-transform: uppercase; letter-spacing: .05em; flex: 1; }
+  .seat .c { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .12em; }
+  .seat .r { font: 700 10px ${BODY}; text-transform: uppercase; letter-spacing: .12em; padding: 3px 8px;
+             background: #2a2a2f; color: var(--bone-dim); border: 1px solid #000; }
+  .seat .r.on { background: #1f7a33; color: #fff; }
+  .seat .r.host { background: var(--brass); color: #1a1408; }
+  .seat .r.away { background: #7a5a12; color: #ffe2a3; }
+  .badge { display: inline-block; margin-left: 10px; padding: 3px 8px; background: rgba(201,167,90,.12);
+           color: #e6cf94; border: 1px solid var(--brass-dim); font: 700 10px ${BODY};
+           text-transform: uppercase; letter-spacing: .12em; vertical-align: middle; }
+  .badge.strong { background: var(--red); color: #fff; border-color: var(--red-lo); }
+  .menu p { color: var(--bone-dim); }
+  .menu code { color: #e6cf94; }
 
-  /* Pause: the game stays visible under a dark sheet with the original's brown band. */
-  .menu.overlay { background: rgba(0,0,0,.72); }
-  .menu.overlay::before { content: ''; position: fixed; top: 0; left: 0; right: 0; height: 44px;
-                          background: rgba(153,51,0,.9); border-bottom: 3px solid rgba(0,0,0,.35); }
-  .menu.overlay::after { display: none; }
-  .menu.overlay .inner { padding-top: 70px; }
-  .sheet { background: #fff; border-radius: 10px; padding: 28px 30px 20px; max-width: 480px; margin: 0 auto;
-           box-shadow: 0 16px 44px rgba(0,0,0,.45); text-align: left; }
-  .sheet h1 { font-size: 46px; margin-bottom: 4px; }
+  /* Pause: the game stays visible under the dark sheet; the panel is a slab. */
+  .menu.overlay .inner { padding-top: 72px; }
+  .sheet { position: relative; background: var(--panel); padding: 30px 32px 22px; max-width: 480px; margin: 0 auto;
+           border: 1px solid rgba(255,255,255,.06);
+           box-shadow: 0 24px 60px rgba(0,0,0,.7), inset 0 0 0 1px rgba(0,0,0,.6); text-align: left; }
+  .sheet::before { content: ''; position: absolute; inset: 6px; border: 1px solid var(--brass-dim); pointer-events: none; }
+  .sheet h1 { font-size: 52px; margin-bottom: 2px; }
   .sheet .btn { max-width: none; }
 
-  /* Debrief: a grey skull under the score, as the original had it. */
-  .watermark { position: fixed; inset: 0; z-index: -1; pointer-events: none; opacity: .38; }
-  .debrief .big { font: 900 80px/1 ${DISPLAY}; color: #e2001a; margin: 4px 0 6px; letter-spacing: .01em;
-                  text-shadow: 0 5px 0 #7d000f; }
-  .debrief .best { color: #1e1e1e; letter-spacing: .16em; text-transform: uppercase; font-size: 12px;
-                   font-weight: 800; margin-bottom: 26px; }
-  .debrief .best.new { color: #b00016; }
+  /* Debrief: the original's grey skull behind a blood-red score. */
+  .watermark { position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity: .16;
+               filter: invert(1) contrast(1.4); }
+  .debrief .big { font: 400 96px/1 ${DISPLAY}; color: var(--red-hi); margin: 2px 0 8px; letter-spacing: .02em;
+                  text-shadow: 0 6px 0 var(--red-lo), 0 0 40px rgba(224,17,31,.55); }
+  .debrief .best { color: var(--brass); letter-spacing: .24em; text-transform: uppercase; font-size: 11px;
+                   font-weight: 700; margin-bottom: 26px; }
+  .debrief .best.new { color: var(--red-hi); text-shadow: 0 0 14px rgba(224,17,31,.6); }
+  .debrief .unlocked { color: var(--brass); }
 `;
+
+/** Ember positions and timings, fixed so the backdrop looks the same every time. */
+const EMBERS = Array.from({ length: 22 }, (_, i) => {
+  const t = (i * 0.618034) % 1;
+  return {
+    left: Math.round(t * 100),
+    delay: -((i * 1.73) % 14),
+    duration: 11 + ((i * 2.9) % 9),
+    drift: Math.round(((i % 5) - 2) * 40),
+    size: 2 + (i % 3),
+  };
+});
 
 function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -343,7 +475,12 @@ export class Menus {
   }
 
   private shell(inner: string): HTMLDivElement {
-    this.root.innerHTML = `<div class="inner">${inner}</div>`;
+    const embers = EMBERS.map(
+      (e) =>
+        `<span class="ember" style="left:${e.left}%;width:${e.size}px;height:${e.size}px;` +
+        `animation-duration:${e.duration}s;animation-delay:${e.delay}s;--drift:${e.drift}px"></span>`,
+    ).join('');
+    this.root.innerHTML = `<div class="bg"></div><div class="embers">${embers}</div><div class="inner">${inner}</div>`;
     return this.root.querySelector<HTMLDivElement>('.inner')!;
   }
 
@@ -618,6 +755,7 @@ export class Menus {
     const inner = this.shell(`
       <button class="back">&larr; back</button>
       <h2>How to play</h2>
+      <div class="panel"><div class="paper">
       <dl class="keys">
         <dt>W A S D</dt><dd>move</dd>
         <dt>mouse</dt><dd>aim</dd>
@@ -638,15 +776,16 @@ export class Menus {
           and kept for the rest of the run.</dd>
         <dt>Levels</dt><dd>Clear a wave to level up. Each level is bigger and faster;
           zombies at level 40 move five times as fast as at level 1.</dd>
-        <dt>Health</dt><dd>Regenerates on its own, fully in thirty seconds. There are no
-          health crates.</dd>
+        <dt>Health</dt><dd>Regenerates on its own, fully in thirty seconds. A crate found
+          while hurt may hold a life-up instead of ammo.</dd>
         <dt>Ammo</dt><dd>Only the pistol is unlimited. Every fifth kill of a quick streak
           drops a crate, as does every devil; a crate refills one weapon you carry.</dd>
         <dt>Barrels</dt><dd>Solid, and they block zombies as well as you. One shot sets
           one off. Place your own with key 4 once earned, and lead zombies into them.</dd>
-        <dt>Barricades</dt><dd>Fake walls (key 6) buy time. Zombies chew through them
-          when going around would take too long, so leave an opening.</dd>
+        <dt>Barricades</dt><dd>Fake walls (key 6) hold zombies off for good; only devils
+          and your own fire bring them down. Wall yourself in and the wave never ends.</dd>
       </dl>
+      </div></div>
     `);
     this.backButton(inner, this.origin);
   }
@@ -655,6 +794,7 @@ export class Menus {
     const inner = this.shell(`
       <button class="back">&larr; back</button>
       <h2>Options</h2>
+      <div class="panel"><div class="paper">
       <div class="row">
         <label for="difficulty">Difficulty</label>
         <select id="difficulty">
@@ -696,6 +836,7 @@ export class Menus {
       </div>
       <button class="btn danger" id="reset">Reset scores and unlocks
         <span class="k">this cannot be undone</span></button>
+      </div></div>
     `);
     this.backButton(inner, this.origin);
 
@@ -744,7 +885,8 @@ export class Menus {
     const inner = this.shell(`
       <button class="back">&larr; back</button>
       <h2>Multiplayer</h2>
-      <p style="max-width:560px;color:#444;margin:0 0 18px">
+      <div class="panel"><div class="paper">
+      <p style="max-width:560px;margin:0 0 18px">
         Somebody runs the server (<code>npm start</code> in the project) and shares its address,
         the way a Minecraft server works. Type it here to join.
       </p>
@@ -771,6 +913,7 @@ export class Menus {
       <div id="netError" class="note bad" hidden></div>
       <button class="btn" id="connect">Connect
         <span class="k">joins the lobby; the host picks the room and mode</span></button>
+      </div></div>
     `);
     this.backButton(inner, 'title');
     this.wireGoButtons(inner);
@@ -850,6 +993,7 @@ export class Menus {
         <div>server <b>${escapeHtml(view.address)}</b></div>
         <div>${escapeHtml(view.status)}</div>
       </div>
+      <div class="panel"><div class="paper">
       <div class="seats">${seats.join('')}</div>
       <h2>Match</h2>
       <div class="row">
@@ -891,9 +1035,10 @@ export class Menus {
                view.isHost
                  ? `<button class="btn" id="start" ${everyoneReady ? '' : 'disabled style="opacity:.5"'}>Start match
                       <span class="k">${everyoneReady ? 'everyone is ready' : 'waiting for players to ready up'}</span></button>`
-                 : `<p style="color:#7b7b7b">Waiting for the host to start.</p>`
+                 : `<p class="hint">Waiting for the host to start.</p>`
              }`
       }
+      </div></div>
     `);
     inner.querySelector<HTMLButtonElement>('.back')!.addEventListener('click', () => this.callbacks.onLeaveMatch());
     inner.querySelector<HTMLButtonElement>('#ready')?.addEventListener('click', () => {
@@ -937,7 +1082,7 @@ export class Menus {
         <div class="stats">
           <div>level reached <b>${result.level}</b></div>
           <div>kills <b>${result.kills}</b></div>
-          ${result.unlockedNext ? '<div style="color:#b00016">new room unlocked</div>' : ''}
+          ${result.unlockedNext ? '<div class="unlocked">new room unlocked</div>' : ''}
         </div>
         <button class="btn" id="again">Play again
           <span class="k">${result.roomName}, same character</span></button>

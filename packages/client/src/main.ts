@@ -50,22 +50,23 @@ app.innerHTML = `
     #view { display: block; width: 100vw; height: 100vh; cursor: crosshair; }
     #boot { position: fixed; inset: 0; display: grid; place-content: center; gap: 10px;
             text-align: center; background: #07080a; z-index: 30; }
-    #boot h1 { margin: 0; font-size: 15px; letter-spacing: .3em; color: #8b939e;
-               text-transform: uppercase; }
-    #boot p { margin: 0; color: #6f7883; max-width: 460px; line-height: 1.6; }
-    #boot code { color: #ffd88a; }
+    #boot h1 { margin: 0; font: 400 34px/1 "Anton", Impact, "Arial Black", sans-serif; letter-spacing: .12em;
+               color: #e9e2d0; text-transform: uppercase; text-shadow: 0 3px 0 #000, 0 0 24px rgba(224,17,31,.4); }
+    #boot p { margin: 0; color: #857f72; max-width: 460px; line-height: 1.6; font: 700 11px "Segoe UI", system-ui, sans-serif;
+              letter-spacing: .2em; text-transform: uppercase; }
+    #boot code { color: #e6cf94; text-transform: none; letter-spacing: 0; font: 13px ui-monospace, Consolas, monospace; }
     /* A short reminder on entering a run, then it gets out of the way. */
     #hint { position: fixed; left: 50%; bottom: 84px; transform: translateX(-50%);
-            color: #ffffff; background: rgba(153,51,0,.92); padding: 8px 16px;
-            border-radius: 4px; pointer-events: none; opacity: 0; font-weight: 600;
-            transition: opacity .5s; white-space: nowrap; box-shadow: 0 3px 0 rgba(0,0,0,.4); }
+            color: #e9e2d0; background: rgba(12,12,14,.92); padding: 9px 18px; border: 1px solid rgba(201,167,90,.45);
+            pointer-events: none; opacity: 0; font: 700 11px "Segoe UI", system-ui, sans-serif; letter-spacing: .16em;
+            text-transform: uppercase; transition: opacity .5s; white-space: nowrap; box-shadow: 0 4px 0 #000, 0 8px 20px rgba(0,0,0,.6); }
     #hint.on { opacity: 1; }
-    #hint b { color: #ffd88a; }
+    #hint b { color: #e6cf94; }
     /* Connection state while on a server; quiet unless something is wrong. */
     #net { position: fixed; top: 10px; right: 12px; z-index: 10; pointer-events: none;
-           font: 700 11px "Segoe UI", system-ui, sans-serif; letter-spacing: .08em;
-           text-transform: uppercase; color: rgba(255,255,255,.55); }
-    #net.warn { color: #ffd88a; background: rgba(153,51,0,.85); padding: 4px 10px; border-radius: 3px; }
+           font: 700 11px "Segoe UI", system-ui, sans-serif; letter-spacing: .12em;
+           text-transform: uppercase; color: rgba(233,226,208,.5); }
+    #net.warn { color: #e6cf94; background: rgba(12,12,14,.9); border: 1px solid rgba(201,167,90,.5); padding: 4px 10px; }
   </style>
   <canvas id="view"></canvas>
   <div id="hint"></div>
