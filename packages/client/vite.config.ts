@@ -2,6 +2,18 @@ import { defineConfig, type Plugin } from 'vite';
 import { resolve, join, relative } from 'node:path';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { viteSingleFile } from 'vite-plugin-singlefile';
+import { execSync } from 'node:child_process';
+
+/** Short commit hash and date, so a running page can say which build it is. */
+function buildStamp(): string {
+  let hash = 'dev';
+  try {
+    hash = execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+  } catch {
+    // Not a checkout; the stamp says so.
+  }
+  return `${hash} ${new Date().toISOString().slice(0, 10)}`;
+}
 
 const ASSETS = resolve(import.meta.dirname, '../../assets');
 
@@ -63,6 +75,7 @@ export default defineConfig(({ command, mode }) => {
   const single = mode === 'single';
   return {
     base: './',
+    define: { __BUILD__: JSON.stringify(buildStamp()) },
     publicDir: single ? false : ASSETS,
     server: { port: 5173, open: false },
     build: {

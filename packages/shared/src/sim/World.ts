@@ -1646,10 +1646,18 @@ export class World {
    * a barrel in one hit. Zombies have no such move.
    */
   private razeObstacle(enemy: Enemy): void {
+    // The obstacle is whatever blocks the step it is trying to take
+    // (`State_GotoPlayer` tests the cell in its target direction), so aim
+    // along its movement, not its drawn facing.
+    const length = Math.hypot(enemy.vx, enemy.vy);
+    if (length < 0.001) return;
+    const dirX = enemy.vx / length;
+    const dirY = enemy.vy / length;
     const ahead = enemy.radius + 14;
-    const x = enemy.x + Math.cos(enemy.angle) * ahead;
-    const y = enemy.y + Math.sin(enemy.angle) * ahead;
+    const x = enemy.x + dirX * ahead;
+    const y = enemy.y + dirY * ahead;
     const cell = this.map.cellOf(x, y);
+    const angle = Math.atan2(dirY, dirX);
 
     let blocked = this.map.tileAt(cell.cx, cell.cy) === Tile.Breakable;
     if (!blocked) {
@@ -1659,9 +1667,7 @@ export class World {
         if (!placeable || !placeable.alive || placeable.type !== 'barrel') continue;
         const reach = enemy.radius + placeable.radius + 6;
         if (distanceSq(enemy.x, enemy.y, placeable.x, placeable.y) > reach * reach) continue;
-        const facing =
-          Math.cos(enemy.angle) * (placeable.x - enemy.x) +
-          Math.sin(enemy.angle) * (placeable.y - enemy.y);
+        const facing = dirX * (placeable.x - enemy.x) + dirY * (placeable.y - enemy.y);
         if (facing > 0) {
           blocked = true;
           break;
@@ -1671,7 +1677,7 @@ export class World {
     if (!blocked) return;
     const timing = attackTiming(enemy.defId, (enemy.speed * ORIGINAL_TICK_RATIO) / ORIGINAL_CELL);
     enemy.attackCooldown = timing.total;
-    this.throwFireball(enemy, enemy.angle, true);
+    this.throwFireball(enemy, angle, true);
   }
 
   /**

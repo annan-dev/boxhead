@@ -346,6 +346,8 @@ const STYLE = `
                    font-weight: 700; margin-bottom: 26px; }
   .debrief .best.new { color: var(--red-hi); text-shadow: 0 0 14px rgba(224,17,31,.6); }
   .debrief .unlocked { color: var(--brass); }
+  .build { position: fixed; right: 14px; bottom: 40px; color: var(--muted); font: 700 10px ${BODY};
+           letter-spacing: .2em; text-transform: uppercase; opacity: .7; }
 `;
 
 /** Ember positions and timings, fixed so the backdrop looks the same every time. */
@@ -538,6 +540,7 @@ export class Menus {
       <button class="btn secondary" data-go="options">Options
         <span class="k">difficulty, game speed, devils, sound</span></button>
       <button class="btn secondary" data-go="instructions">How to play</button>
+      <div class="build">build ${escapeHtml(__BUILD__)}</div>
     `);
     this.wireGoButtons(inner);
     // If the logo file is missing, the text heading comes back.

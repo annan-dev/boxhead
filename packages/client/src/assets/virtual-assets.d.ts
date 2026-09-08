@@ -1,3 +1,6 @@
+/** Commit hash and date, injected by vite.config.ts. */
+declare const __BUILD__: string;
+
 /** Provided by the inlinedAssets plugin in vite.config.ts. */
 declare module 'virtual:inlined-assets' {
   /** The parsed art pack when baked into the bundle, else null. */

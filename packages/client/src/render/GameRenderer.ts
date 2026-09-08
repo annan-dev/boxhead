@@ -126,6 +126,7 @@ export class GameRenderer {
       ctx.fillRect(0, 0, this.floor.width, this.floor.height);
       drawLayers(ctx, layers);
       this.grainFloor();
+      this.paintVoid();
     } else {
       ctx.fillStyle = '#cfc4ad';
       ctx.fillRect(0, 0, this.floor.width, this.floor.height);
@@ -143,6 +144,34 @@ export class GameRenderer {
         ctx.lineTo(this.floor.width, y + 0.5);
       }
       ctx.stroke();
+    }
+  }
+
+  /**
+   * Solid cells that no block stands on are outside the playable arena: the
+   * original's map edge, where the painted floor still shows but nothing can
+   * go. Paint them as the dark beyond, so a line of prebuilt walls reads as
+   * the outermost squares it is, with the zombies emerging from the dark.
+   */
+  private paintVoid(): void {
+    const map = this.world.map;
+    const ctx = this.floorCtx;
+    ctx.fillStyle = '#0d0f12';
+    const blocks = map.blocks;
+    for (let cy = 0; cy < map.rows; cy++) {
+      for (let cx = 0; cx < map.cols; cx++) {
+        if (map.tileAt(cx, cy) !== Tile.Solid) continue;
+        const x = cx * map.cell + map.cell / 2;
+        const y = cy * map.cell + map.cell / 2;
+        let covered = false;
+        for (const block of blocks) {
+          if (x >= block.x - 4 && x <= block.x + block.w + 4 && y >= block.y - 4 && y <= block.y + block.h + 4) {
+            covered = true;
+            break;
+          }
+        }
+        if (!covered) ctx.fillRect(cx * map.cell, cy * map.cell, map.cell, map.cell);
+      }
     }
   }
 
