@@ -406,6 +406,9 @@ const STYLE = `
   /* How to play: two columns where there is room, so it fits a screen. */
   .howto { display: grid; grid-template-columns: 1fr; gap: 0 36px; }
   @media (min-width: 1180px) { .howto { grid-template-columns: 1fr 1fr; } .howto .keys { grid-template-columns: 120px 1fr; margin-bottom: 14px; } }
+  .colhead { margin: 0 0 8px; min-height: 2.6em; }
+  button.badge.chip { cursor: pointer; margin-left: 8px; }
+  button.badge.chip:hover, button.badge.chip:focus { outline: none; color: #fff; border-color: var(--brass); box-shadow: 0 0 10px var(--brass-glow); }
   .controls { display: grid; grid-template-columns: 1fr; gap: 6px 28px; margin-bottom: 14px; }
   @media (min-width: 1180px) { .controls { grid-template-columns: 1fr 1fr 1fr; } .controls .keygrid.one { grid-template-columns: 1fr; max-width: none; } }
   .keygrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0 30px; max-width: 700px; }
@@ -558,6 +561,7 @@ export class Menus {
       const direction = arrows[event.code];
       if (direction) {
         event.preventDefault();
+        this.focusByKey = true;
         this.moveFocusToward(direction[0], direction[1]);
       }
     });
@@ -575,10 +579,24 @@ export class Menus {
       if (el && !(from && el.contains(from))) this.callbacks.onUiSound?.('hover');
     });
     this.root.addEventListener('focusin', (event) => {
-      if (control(event.target)) this.callbacks.onUiSound?.('hover');
+      // A screen focusing its first control on open is not the player moving.
+      if (this.focusByKey && control(event.target)) this.callbacks.onUiSound?.('hover');
+      this.focusByKey = false;
     });
+    const quiet = (target: EventTarget | null): boolean => {
+      const el = target as HTMLElement | null;
+      return el?.tagName === 'SELECT' || (el?.tagName === 'INPUT' && (el as HTMLInputElement).type !== 'checkbox' && (el as HTMLInputElement).type !== 'range');
+    };
     this.root.addEventListener('click', (event) => {
-      if (control(event.target)) this.callbacks.onUiSound?.('click');
+      const el = event.target as HTMLElement | null;
+      if (el?.tagName === 'SELECT' || el?.tagName === 'INPUT') return;
+      if (control(event.target) && !quiet(event.target)) this.callbacks.onUiSound?.('click');
+    });
+    this.root.addEventListener('change', (event) => {
+      const el = event.target as HTMLElement | null;
+      if (el?.tagName === 'SELECT' || (el?.tagName === 'INPUT' && (el as HTMLInputElement).type === 'checkbox')) {
+        this.callbacks.onUiSound?.('click');
+      }
     });
   }
 
@@ -645,6 +663,8 @@ export class Menus {
 
   private padHeld = new Set<number>();
   private padRepeat = 0;
+  /** The next focus change came from a key or the pad, so it may tick. */
+  private focusByKey = false;
 
   /** D-pad or left stick moves focus, A activates, B backs out, Start resumes a pause. */
   private pollPad(): void {
@@ -673,6 +693,7 @@ export class Menus {
     const moved = rose(12) || rose(13) || rose(14) || rose(15);
     if ((vertical !== 0 || horizontal !== 0) && (moved || ++this.padRepeat > 6)) {
       this.padRepeat = moved ? -4 : 0;
+      this.focusByKey = true;
       this.moveFocusToward(horizontal, vertical);
     }
     if (vertical === 0 && horizontal === 0) this.padRepeat = 0;
@@ -880,8 +901,8 @@ export class Menus {
           ? `best ${at.score.toLocaleString()} &middot; level ${at.level}` +
             (line && line.runs > 0 ? ` &middot; ${line.runs} ${line.runs === 1 ? 'run' : 'runs'}, usually ${formatSeconds(line.medianSeconds)}` : '')
           : record.score > 0
-            ? `no ${escapeHtml(this.difficultyName())} run yet &middot; ${escapeHtml(SaveData.presetLine(preset))}`
-            : `not played &middot; ${escapeHtml(SaveData.presetLine(preset))}`;
+            ? `no ${escapeHtml(this.difficultyName())} run yet &middot; best ${record.score.toLocaleString()} on ${escapeHtml(this.difficultyName(record.difficulty ?? 'beginner'))} &middot; ${escapeHtml(SaveData.presetLine(preset, this.save.devils))}`
+            : `not played &middot; ${escapeHtml(SaveData.presetLine(preset, this.save.devils))}`;
         const icon = this.screens?.levelIcons[room.id];
         return `
           <button class="card ${unlocked ? '' : 'locked'}" data-room="${room.id}"
@@ -910,7 +931,7 @@ export class Menus {
                <div><label style="cursor:pointer"><input type="checkbox" id="sharedDm" ${this.save.sharedMode === 'deathmatch' ? 'checked' : ''} style="accent-color:var(--red);vertical-align:-2px;margin-right:6px">deathmatch &mdash; head to head, first to ${DEATHMATCH_KILL_TARGETS[1]}</label></div>`
             : ''
         }
-        ${this.save.practiceReason ? `<div><span class="badge strong">&#9888; practice run &mdash; ${this.save.practiceReason}</span>${this.save.startLevel ? ' <button class="key" id="practiceOff" type="button">practice off</button>' : ''}</div>` : ''}
+        ${this.save.practiceReason ? `<div><span class="badge strong">&#9888; practice run &mdash; ${this.save.practiceReason}</span>${this.save.startLevel ? ' <button class="badge chip" id="practiceOff" type="button">practice off</button>' : ''}</div>` : ''}
       </div>
       <div class="panel"><div class="paper"><div class="grid">${cards}</div></div></div>
     `);
@@ -1114,9 +1135,7 @@ export class Menus {
         <dt>${escapeHtml(this.keyLabel(['prev', 'next']))}, wheel</dt><dd>cycle weapons</dd>
         <dt>${escapeHtml(this.keyLabel(['pause']))}</dt><dd>quick pause</dd>
         <dt>Escape</dt><dd>pause menu: resume, restart, options, quit</dd>
-        <dt>R</dt><dd>restart the run (while paused)</dd>
-        <dt>M</dt><dd>mute</dd>
-        <dt>F3</dt><dd>performance stats</dd>
+        <dt>R &middot; M &middot; F3</dt><dd>restart while paused &middot; mute &middot; performance stats</dd>
         <dt>Gamepad</dt><dd>left stick or d-pad moves, right stick aims, right trigger or A fires,
           bumpers cycle weapons, Start quick-pauses, B or Y opens the pause menu; in the menus the
           d-pad moves, A chooses, B goes back</dd>
@@ -1255,7 +1274,7 @@ export class Menus {
       <div id="keyNote" class="note bad" hidden></div>
       <div class="controls">
       <div>
-      <p class="hint" style="margin:0 0 8px">Player 1 on the keyboard:</p>
+      <p class="hint colhead">Player 1 on the keyboard</p>
       <div class="keygrid one">
         ${(Object.keys(DEFAULT_BINDINGS) as BindableAction[])
           .map((action) => {
@@ -1267,7 +1286,7 @@ export class Menus {
       </div>
       </div>
       <div>
-      <p class="hint" style="margin:0 0 8px">Player 2 on the keyboard, when two share this screen:</p>
+      <p class="hint colhead">Player 2 on the keyboard, when two share this screen</p>
       <div class="keygrid one">
         ${(Object.keys(DEFAULT_SEAT_B) as BindableAction[])
           .map((action) => {
@@ -1279,7 +1298,7 @@ export class Menus {
       </div>
       </div>
       <div>
-      <p class="hint" style="margin:0 0 8px">Gamepad: click a button and press the new one. Sticks and the d-pad stay as they are.</p>
+      <p class="hint colhead">Gamepad: click a button, press the new one; sticks and d-pad stay</p>
       <div class="keygrid one">
         ${(Object.keys(DEFAULT_PAD) as PadAction[])
           .map((action) => {
@@ -1768,12 +1787,14 @@ export class Menus {
       return;
     }
     const delta = result.score - result.bestBefore;
-    const record = result.practice ? null : this.save.recordLine(result.roomId, result.difficulty);
+    const line = result.practice ? null : this.save.recordLine(result.roomId, result.difficulty);
+    // One run is the row beneath; the line earns its place from the second.
+    const record = line && line.runs > 1 ? line : null;
     // A quick death on a preset never cleared here: the wave is the lesson, so practising it leads.
     const quickDeath = !result.practice && result.seconds < 30 && result.levelsCleared < UNLOCK_CLEARS && result.level >= 2;
     const verdict = result.practice
       ? `<span class="badge strong">&#9888; practice run (${result.practice}) &mdash; not recorded</span>${
-          this.save.startLevel ? ' <button class="key" id="practiceOff" type="button">practice off</button>' : ''
+          this.save.startLevel ? ' <button class="badge chip" id="practiceOff" type="button">practice off</button>' : ''
         }`
       : result.bestBefore <= 0
         ? 'first run here on this difficulty'

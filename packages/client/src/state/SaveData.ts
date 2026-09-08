@@ -7,6 +7,8 @@
  * with sensible defaults rather than fail.
  */
 
+import { levelDef } from '@boxhead/shared';
+
 const STORAGE_KEY = 'boxhead.save.v1';
 /** A run parked mid-wave, kept apart from the save so its size never bloats it. */
 const RUN_KEY = 'boxhead.run.v1';
@@ -47,7 +49,17 @@ export interface RoomRecord {
   /** Longest run here, in whole seconds of play. */
   seconds?: number;
   /** Best score and level per difficulty preset, so presets do not compete. */
-  byDifficulty?: Record<string, { score: number; level: number }>;
+  byDifficulty?: Record<string, PresetRecord>;
+}
+
+/** A room's record at one preset: the bests, and a tally that outlives the history. */
+export interface PresetRecord {
+  score: number;
+  level: number;
+  /** Runs finished here at this preset. */
+  runs?: number;
+  /** The last eight runs' lengths in seconds, for "usually". */
+  times?: number[];
 }
 
 /** One finished run, for the history list. */
@@ -487,20 +499,23 @@ export class SaveData {
    * best level, and the median time. Nothing when they have not played it.
    */
   recordLine(roomId: string, difficulty: string): { runs: number; bestLevel: number; medianSeconds: number } | null {
-    const runs = this.history.filter((entry) => entry.roomId === roomId && entry.difficulty === difficulty);
-    const best = this.bestAt(roomId, difficulty);
-    if (runs.length === 0 && best.score <= 0) return null;
-    const times = runs.map((entry) => entry.seconds).sort((a, b) => a - b);
+    const record = this.recordFor(roomId).byDifficulty?.[difficulty];
+    if (!record) return null;
+    const times = [...(record.times ?? [])].sort((a, b) => a - b);
     return {
-      runs: runs.length,
-      bestLevel: Math.max(best.level, ...runs.map((entry) => entry.level)),
+      runs: record.runs ?? 0,
+      bestLevel: record.level,
       medianSeconds: times.length > 0 ? times[Math.floor(times.length / 2)]! : 0,
     };
   }
 
   /** Where a preset opens, for a room the player has not tried at it. */
-  static presetLine(difficulty: { name: string; startLevel: number; startMultiplier: number }): string {
-    return `${difficulty.name} opens at level ${difficulty.startLevel} with x${difficulty.startMultiplier}`;
+  static presetLine(difficulty: { name: string; startLevel: number; startMultiplier: number }, devils = true): string {
+    const wave = levelDef(difficulty.startLevel);
+    const count = devils && wave.devilTotal > 0
+      ? `${wave.zombieTotal} zombies, ${wave.devilTotal} ${wave.devilTotal === 1 ? 'devil' : 'devils'}`
+      : `${wave.zombieTotal} zombies`;
+    return `${difficulty.name} opens at level ${difficulty.startLevel} with x${difficulty.startMultiplier} · ${count}`;
   }
 
   isRoomUnlocked(index: number): boolean {
@@ -593,9 +608,12 @@ export class SaveData {
     // erase a Beginner record, nor the other way round.
     const isBest = result.score > previousAt.score;
     const byDifficulty = { ...(previous.byDifficulty ?? {}) };
+    const previousRecord = previous.byDifficulty?.[difficulty];
     byDifficulty[difficulty] = {
       score: Math.max(previousAt.score, result.score),
       level: Math.max(previousAt.level, result.level),
+      runs: (previousRecord?.runs ?? 0) + 1,
+      times: [...(previousRecord?.times ?? []), result.seconds ?? 0].slice(-8),
     };
     this.state.history = [
       {
@@ -670,14 +688,16 @@ export class SaveData {
       const kills = count(r['kills']);
       const plays = count(r['plays']);
       if (score === null || level === null || kills === null || plays === null) return null;
-      const byDifficulty: Record<string, { score: number; level: number }> = {};
+      const byDifficulty: Record<string, PresetRecord> = {};
       if (r['byDifficulty'] && typeof r['byDifficulty'] === 'object') {
         for (const [difficulty, best] of Object.entries(r['byDifficulty'] as Record<string, unknown>)) {
           if (!best || typeof best !== 'object') continue;
           const b = best as Record<string, unknown>;
           const bs = count(b['score']);
           const bl = count(b['level']);
-          if (bs !== null && bl !== null) byDifficulty[difficulty] = { score: bs, level: bl };
+          if (bs === null || bl === null) continue;
+          const times = Array.isArray(b['times']) ? b['times'].map(count).filter((t): t is number => t !== null).slice(-8) : [];
+          byDifficulty[difficulty] = { score: bs, level: bl, runs: count(b['runs']) ?? times.length, times };
         }
       }
       return {
@@ -706,6 +726,8 @@ export class SaveData {
         byDifficulty[difficulty] = {
           score: Math.max(have?.score ?? 0, best.score),
           level: Math.max(have?.level ?? 0, best.level),
+          runs: (have?.runs ?? 0) + (best.runs ?? 0),
+          times: [...(have?.times ?? []), ...(best.times ?? [])].slice(-8),
         };
       }
       rooms[id] = {

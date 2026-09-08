@@ -15,6 +15,7 @@ import {
   TICK_MS,
   WEAPONS,
   circleBlocked,
+  levelBanner,
   emptyCommand,
   serverUrl,
   type ArtPack,
@@ -421,6 +422,9 @@ function startRun(roomId: string, characterId: string): void {
     ...(save.sharedScreen ? { secondCharacterId: save.secondCharacterId, mode: save.sharedMode } : {}),
   });
   bind(session, characterId);
+  // A run opening above level 1 is told what wave it opens on, as every
+  // level-up is; a Beginner start has nothing to say yet.
+  if (session.startLevel > 1) session.world.pushMessage(levelBanner(session.startLevel), 'level', 200);
   paused = false;
   debriefed = false;
   input.clearLatches();

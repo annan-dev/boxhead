@@ -116,3 +116,23 @@ test("a room's record line comes from the player's own runs", () => {
   assert.equal(line.medianSeconds, 20);
   assert.equal(save.recordLine('r1', 'beginner'), null, 'another preset is another record');
 });
+
+test('the record line outlives the ten-run history and merges through a code', () => {
+  const save = new SaveData();
+  for (const [level, seconds] of [[21, 20], [22, 60], [20, 9]] as const) {
+    save.recordRun('r1', 0, { score: 100, level, kills: 1, startLevel: 20, difficulty: 'expert', seconds }, true, 18);
+  }
+  for (let i = 0; i < 12; i++) {
+    save.recordRun('r2', 1, { score: 10, level: 2, kills: 1, startLevel: 1, difficulty: 'beginner', seconds: 30 }, true, 18);
+  }
+  assert.deepEqual(save.recordLine('r1', 'expert'), { runs: 3, bestLevel: 22, medianSeconds: 20 });
+  assert.equal(save.history.length, 10, 'the history is still capped');
+
+  const other = new SaveData();
+  other.recordRun('r1', 0, { score: 500, level: 25, kills: 1, startLevel: 20, difficulty: 'expert', seconds: 90 }, true, 18);
+  assert.equal(other.importCode(save.exportCode()), true);
+  const merged = other.recordLine('r1', 'expert');
+  assert.ok(merged);
+  assert.equal(merged.runs, 4, 'runs add up across the two records');
+  assert.equal(merged.bestLevel, 25, 'the higher best stays');
+});

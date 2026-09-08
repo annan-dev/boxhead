@@ -131,7 +131,11 @@ export function keyName(code: string): string {
     Quote: "'", Backslash: '\\', Minus: '-', Equal: '=', Backquote: '`',
   };
   if (names[code]) return names[code]!;
-  if (code.startsWith('Numpad')) return `Num ${code.slice(6).replace('Decimal', '.').replace('Divide', '/').replace('Multiply', '*').replace('Enter', 'Enter')}`;
+  if (code.startsWith('Numpad')) {
+    const glyphs: Record<string, string> = { Add: '+', Subtract: '−', Multiply: '×', Divide: '÷', Decimal: '.', Enter: 'Enter' };
+    const rest = code.slice(6);
+    return `Num ${glyphs[rest] ?? rest}`;
+  }
   if (code.startsWith('Intl')) return code.slice(4);
   if (code === 'CapsLock') return 'Caps';
   if (code === 'ContextMenu') return 'Menu';
