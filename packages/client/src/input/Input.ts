@@ -275,6 +275,11 @@ export class Input {
     return this.bindings[action];
   }
 
+  /** The second seat's keys for an action, for its own hints. */
+  seatBKeys(action: BindableAction): string[] {
+    return SEAT_B[action];
+  }
+
   /** True while the pad, not the mouse, owns the aim. */
   get padOwnsAim(): boolean {
     return this.padAims;

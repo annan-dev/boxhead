@@ -93,6 +93,8 @@ export class NetSession implements Session {
   private skipSteps = 0;
   private netState: NetState = 'idle';
   private netDetail = '';
+  /** Why the socket closed for good, once it has. */
+  private lastClose = '';
   private replayed = 0;
   private corrections = 0;
   private lastCorrection = 0;
@@ -116,6 +118,7 @@ export class NetSession implements Session {
         this.netDetail = detail;
         this.events.onNet(state, detail);
         // A close this session asked for is not news to anyone.
+        if (state === 'closed') this.lastClose = detail || 'closed';
         if (state === 'closed' && detail !== 'left') this.events.onClosed(detail);
       },
     });
@@ -457,6 +460,7 @@ export class NetSession implements Session {
       `unacked     ${this.history.length}`,
       `replayed    ${this.replayed}`,
       `corrections ${this.corrections} (last ${this.lastCorrection.toFixed(1)} px)`,
+      ...(this.lastClose ? [`closed      ${this.lastClose}`] : []),
     ];
   }
 

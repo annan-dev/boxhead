@@ -409,6 +409,11 @@ const STYLE = `
   .howto { display: grid; grid-template-columns: 1fr; gap: 0 36px; }
   @media (min-width: 1180px) { .howto { grid-template-columns: 1fr 1fr; } .howto .keys { grid-template-columns: 120px 1fr; margin-bottom: 8px; gap: 5px 18px; line-height: 1.3; font-size: 14px; } .howto h2 { margin-bottom: 10px; } }
   .colhead { margin: 0 0 8px; min-height: 2.6em; }
+  /* Feel: label, control, value in three columns, so the percentages read down one axis. */
+  section[data-tab="feel"] .row { display: grid; grid-template-columns: 160px 260px auto; align-items: center; gap: 0 16px; }
+  section[data-tab="feel"] .row label { min-width: 0; }
+  section[data-tab="feel"] .row input[type=range] { width: 100%; max-width: none; }
+  section[data-tab="feel"] .row input[type=checkbox] { justify-self: start; }
   button.badge.chip { cursor: pointer; margin-left: 8px; }
   button.badge.chip:hover, button.badge.chip:focus { outline: none; color: #fff; border-color: var(--brass); box-shadow: 0 0 10px var(--brass-glow); }
   .controls { display: grid; grid-template-columns: 1fr; gap: 6px 28px; margin-bottom: 14px; }

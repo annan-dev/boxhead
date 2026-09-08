@@ -66,6 +66,9 @@ const SCENARIOS = {
   'quick-pause': `run(0, 'beginner'); bot(600); quickPause()`,
   debrief: `run(0, 'nightmare'); bot(6000, { suicide: true }); await debrief()`,
   latency: `run(0, 'beginner'); return latency()`,
+  // The widest room, so the camera has room to lean and the arena's edge does not clamp it.
+  lead: `run(4, 'beginner'); return lead()`,
+  'shared-tips': `shared('coop'); run(0, 'beginner'); bot(200); return { tip: g.debugTip(1) }`,
   'low-health': `run(0, 'beginner'); bot(300); lowHealth(40)`,
   'low-health-shared': `shared('coop'); run(0, 'beginner'); bot(300); lowHealth(40, 1)`,
   'shared-coop': `shared('coop'); run(0, 'beginner'); await drive(['ArrowRight'], 60); bot(900); await drive(['ArrowLeft'], 40)`,
@@ -108,8 +111,47 @@ const HELPERS = `
     for (let i = 1; i <= 10; i++) { step(); if (fired) { fireTicks = i; break; } }
     window.dispatchEvent(new PointerEvent('pointerup', { button: 0, bubbles: true }));
     g.audio.play = orig;
+    // Draw the frame the numbers were measured on, then hold it.
+    g.debugBot(0);
     g.loop.stop();
     return { moveTicks, fireTicks };
+  }
+  /**
+   * How far the camera leans toward the aim at a setting: the pointer goes
+   * to the right edge, the player stands still, and after the camera has
+   * settled the offset between camera and player is the lead.
+   */
+  function leadAt(amount) {
+    g.save.setCameraLead(amount);
+    const p = g.world.players[0];
+    p.invincible = 100000;
+    // Stand in the middle of the arena, well clear of the edges the camera clamps to.
+    const map = g.world.map;
+    p.x = p.prevX = map.width / 2;
+    p.y = p.prevY = map.height / 2;
+    g.world.hash.move(p.id, p.x, p.y);
+    g.camera.jumpTo(p.x, p.y);
+    const canvas = document.getElementById('view');
+    const rect = canvas.getBoundingClientRect();
+    window.dispatchEvent(new PointerEvent('pointermove', { clientX: rect.right - 4, clientY: rect.top + rect.height / 2, bubbles: true }));
+    for (let i = 0; i < 30; i++) {
+      // The pointer unprojects through the drawn camera; with no frames drawn here, settle it by hand.
+      g.camera.interpolate(1);
+      g.loop.callbacks.step();
+      // Hold the player where they stand: a bite would shove them and spoil the reading.
+      p.x = p.prevX = map.width / 2;
+      p.y = p.prevY = map.height / 2;
+    }
+    return g.debugStats().lead.x;
+  }
+  function lead() {
+    const lead100 = leadAt(1);
+    const lead50 = leadAt(0.5);
+    const lead0 = leadAt(0);
+    g.save.setCameraLead(1);
+    g.debugBot(0);
+    g.loop.stop();
+    return { lead0, lead50, lead100 };
   }
   /** Drain a seat to a few points, and hold it there through the frame, so the heartbeat shows. */
   function lowHealth(life, seat) {
@@ -342,6 +384,33 @@ async function runCoop(host) {
     const bannerOf = (cdp) =>
       evaluate(cdp, `(async () => { for (let i = 0; i < 60; i++) { if (__game.world?.messages.some((m) => m.kind === 'level')) return true; await new Promise((r) => setTimeout(r, 50)); } return false; })()`);
     const [hostBanner, guestBanner] = await Promise.all([bannerOf(host), bannerOf(guest)]);
+    // Pull the guest's plug while the opening banner is alive: it must come
+    // back to the same seat with the room's strip, banner included.
+    const earlyReconnect = await evaluate(
+      guest,
+      `(async () => {
+        const session = __game.run?.session;
+        if (!session) return { state: 'run ended before the reconnect' };
+        const seat = session.localPlayerIndex;
+        const net = session['net'];
+        net['socket']?.close();
+        let state = '';
+        for (let i = 0; i < 100; i++) {
+          await new Promise((r) => setTimeout(r, 100));
+          state = net.state;
+          if (state === 'joined') break;
+        }
+        await new Promise((r) => setTimeout(r, 200));
+        return { seatBefore: seat, seatAfter: session.localPlayerIndex, state };
+      })()`,
+    );
+    const stripsAfterRejoin = {
+      host: await evaluate(host, `(__game.world?.messages.map((m) => m.text) ?? null)`),
+      guest: await evaluate(guest, `(__game.world?.messages.map((m) => m.text) ?? null)`),
+    };
+    const stripCarried =
+      Array.isArray(stripsAfterRejoin.guest) && stripsAfterRejoin.guest.length > 0 &&
+      JSON.stringify(stripsAfterRejoin.guest) === JSON.stringify(stripsAfterRejoin.host);
     // Both seats walk and shoot for a few seconds of real time.
     const drive = (cdp, keys) =>
       evaluate(
@@ -408,12 +477,20 @@ async function runCoop(host) {
       hostBanner,
       guestBanner,
     };
+    const closes = {
+      host: await evaluate(host, `__game.debugStats()?.lastNetClose ?? (window.__game ? '' : null)`),
+      guest: await evaluate(guest, `__game.debugStats()?.lastNetClose ?? ''`),
+    };
     const report = {
+      closes,
       joinedAs: { host: hostScreen, guest: guestScreen },
       match,
       levels,
       events,
       partnerMarkerSeen,
+      earlyReconnect,
+      stripsAfterRejoin,
+      stripCarried,
       strips,
       lobbyOverflow,
       bothInWave,

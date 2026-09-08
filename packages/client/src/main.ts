@@ -181,6 +181,10 @@ let debriefed = false;
 /** The address typed for the current or last server, for the lobby screen. */
 let netAddress = '';
 let netStatus = '';
+/** Why the last networked run ended, for the harness and the F3 overlay. */
+let lastNetClose = '';
+/** The camera's lean toward the aim on the last step, for the harness. */
+let lastLead = { x: 0, y: 0 };
 /** The last lobby the server described, re-shown when the link state changes. */
 let lastLobby: Omit<LobbyView, 'address' | 'status'> | null = null;
 
@@ -275,9 +279,13 @@ function showHint(text: string, ms = 4200): void {
  */
 interface Tip {
   id: string;
-  text: string;
+  /** The line, for the seat it is shown to: the first seat has number keys, the second has none. */
+  text: string | ((seat: number) => string);
   when: (world: World, me: Player) => boolean;
 }
+/** "(4)" for the first seat; the second seat cycles to a weapon with its own keys. */
+const keyFor = (slot: number, seat: number): string =>
+  seat === 0 ? `(${slot})` : `(cycle with ${keyName(input.seatBKeys('prev')[0] ?? 'Comma')} and ${keyName(input.seatBKeys('next')[0] ?? 'Period')})`;
 const unlocked = (me: Player, id: string): boolean => me.weapons.get(id as never)?.unlocked === true;
 const TIPS: Tip[] = [
   {
@@ -297,27 +305,27 @@ const TIPS: Tip[] = [
   },
   {
     id: 'barrel',
-    text: '<b>barrels</b> (4) drop one cell ahead &mdash; zombies cannot pass, one shot sets it off',
+    text: (seat) => `<b>barrels</b> ${keyFor(4, seat)} drop one cell ahead &mdash; zombies cannot pass, one shot sets it off`,
     when: (_, me) => unlocked(me, 'barrel'),
   },
   {
     id: 'grenade',
-    text: '<b>grenade</b> (5) &mdash; hold to throw farther, release to lob',
+    text: (seat) => `<b>grenade</b> ${keyFor(5, seat)} &mdash; hold to throw farther, release to lob`,
     when: (_, me) => unlocked(me, 'grenade'),
   },
   {
     id: 'wall',
-    text: '<b>fake walls</b> (6) hold zombies off for good; only devils and your own fire bring them down',
+    text: (seat) => `<b>fake walls</b> ${keyFor(6, seat)} hold zombies off for good; only devils and your own fire bring them down`,
     when: (_, me) => unlocked(me, 'fakewall'),
   },
   {
     id: 'mine',
-    text: '<b>mines</b> (7) arm once you step off; whatever treads on one sets it off',
+    text: (seat) => `<b>mines</b> ${keyFor(7, seat)} arm once you step off; whatever treads on one sets it off`,
     when: (_, me) => unlocked(me, 'mine'),
   },
   {
     id: 'charge',
-    text: '<b>charge packs</b> (9) &mdash; press to place, press again to blow them all',
+    text: (seat) => `<b>charge packs</b> ${keyFor(9, seat)} &mdash; press to place, press again to blow them all`,
     when: (_, me) => unlocked(me, 'chargepack'),
   },
   {
@@ -329,21 +337,26 @@ const TIPS: Tip[] = [
 let tipCooldown = 0;
 
 /** Show the first tip whose moment has come, one at a time, spaced out. */
-function offerTips(world: World, me: Player): void {
-  if (!save.tips) return;
+function offerTips(world: World, me: Player, seat = 0): boolean {
+  if (!save.tips) return false;
   if (tipCooldown > 0) {
-    tipCooldown -= 1;
-    return;
+    if (seat === 0) tipCooldown -= 1;
+    return false;
   }
-  if (hint.classList.contains('on')) return;
+  if (hint.classList.contains('on')) return false;
+  const shared = run?.session instanceof LocalSession && run.session.localSeats >= 2;
   for (const tip of TIPS) {
-    if (save.hasSeenTip(tip.id) || !tip.when(world, me)) continue;
-    save.markTip(tip.id);
-    showHint(tip.text, 5200);
+    // Each seat keeps its own seen-list, so the newcomer at the arrows is taught too.
+    const id = seat === 0 ? tip.id : `${tip.id}@${seat + 1}`;
+    if (save.hasSeenTip(id) || !tip.when(world, me)) continue;
+    save.markTip(id);
+    const text = typeof tip.text === 'function' ? tip.text(seat) : tip.text;
+    showHint(shared ? `<b>P${seat + 1}</b> &nbsp; ${text}` : text, 5200);
     // Leave a gap after one tip so two never run together.
     tipCooldown = 400;
-    return;
+    return true;
   }
+  return false;
 }
 
 /** Sound and rebinding, on behalf of whichever session is running. */
@@ -547,6 +560,7 @@ function connect(address: string, name: string, characterId: string): void {
       }
     },
     onClosed: (reason) => {
+      lastNetClose = reason || 'disconnected';
       endRun();
       menus.showNetError(reason || 'disconnected');
     },
@@ -831,7 +845,7 @@ const loop = new Loop(
         const me = world.players[run.session.localPlayerIndex];
         if (me && me.state === 'alive' && !world.gameOver) offerTips(world, me);
         const second = run.session instanceof LocalSession && run.session.localSeats >= 2 ? world.players[1] : undefined;
-        if (second && second.state === 'alive' && !world.gameOver) offerTips(world, second);
+        if (second && second.state === 'alive' && !world.gameOver) offerTips(world, second, 1);
         // Park every ten seconds as well, against a crash the page never sees coming.
         if (world.tick % 500 === 0) parkRun();
       }
@@ -855,6 +869,7 @@ const loop = new Loop(
         // Lean the camera a little toward the aim, so the player sees more
         // of where they are shooting than of what is behind them.
         const lead = target === local && local.state === 'alive' ? aimLead(local, save.cameraLead) : { x: 0, y: 0 };
+        lastLead = lead;
         run.camera.follow(target.x + lead.x, target.y + lead.y);
       }
 
@@ -993,6 +1008,8 @@ if (import.meta.env.DEV) {
       drawMs: Number(loop.drawMs.toFixed(2)),
       poses: run.renderer.cachedPoses,
       partnerMarkers: run.hud.partnerMarkers,
+      lastNetClose,
+      lead: { x: Math.round(lastLead.x), y: Math.round(lastLead.y) },
     };
   };
   (window as unknown as Record<string, unknown>).__game = {
@@ -1012,6 +1029,7 @@ if (import.meta.env.DEV) {
     music,
     gameMusic,
     audio,
+    input,
     startRun,
     connect,
     /**
@@ -1154,5 +1172,14 @@ if (import.meta.env.DEV) {
       return debugStats();
     },
     debugStats,
+    /** Force the next tip for a seat, ignoring the cooldown, and return the hint shown. */
+    debugTip(seat: number): string | null {
+      if (!run) return null;
+      const player = run.session.world.players[seat === 0 ? run.session.localPlayerIndex : seat];
+      if (!player) return null;
+      tipCooldown = 0;
+      hint.classList.remove('on');
+      return offerTips(run.session.world, player, seat) ? hint.innerHTML : null;
+    },
   };
 }
