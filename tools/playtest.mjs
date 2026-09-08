@@ -295,7 +295,7 @@ async function runCoop(host) {
             await new Promise((r) => setTimeout(r, step.ms));
             for (const k of step.keys) up(k);
           }
-          return __game.debugStats();
+          return { ...__game.debugStats(), screen: __game.menus.screen, seat: __game.run.session.localPlayerIndex };
         })()`,
       );
     const [hostStats, guestStats] = await Promise.all([
@@ -327,7 +327,16 @@ async function runCoop(host) {
       const shot = await cdp.send('Page.captureScreenshot', { format: 'png' });
       writeFileSync(join(out, `${name}.png`), Buffer.from(shot.data, 'base64'));
     }
-    const report = { hostScreen, guestScreen, reconnect, host: { ...hostStats, net: hostNet }, guest: { ...guestStats, net: guestNet } };
+    const bothInWave = hostStats.screen === 'none' && guestStats.screen === 'none' && hostStats.tick > 0 && guestStats.tick > 0;
+    const report = {
+      hostScreen,
+      guestScreen,
+      bothInWave,
+      reconnect,
+      host: { ...hostStats, net: hostNet },
+      guest: { ...guestStats, net: guestNet },
+    };
+    if (!bothInWave) console.error('co-op: a client never reached the wave');
     console.log(JSON.stringify(report, null, 2));
     writeFileSync(join(out, 'coop.json'), JSON.stringify(report, null, 2));
     guestBrowser.close();

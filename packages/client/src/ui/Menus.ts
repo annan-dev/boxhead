@@ -30,6 +30,7 @@ import {
   ACTION_LABELS,
   DEFAULT_BINDINGS,
   DEFAULT_PAD,
+  DEFAULT_SEAT_B,
   PAD_ACTION_LABELS,
   RESERVED_KEYS,
   firstGamepad,
@@ -399,6 +400,7 @@ const STYLE = `
          border-bottom-color: var(--brass-dim); cursor: pointer; box-shadow: inset 0 1px 0 rgba(255,255,255,.06); }
   .tab:hover, .tab:focus { outline: none; color: var(--bone); border-color: var(--brass-dim); }
   .tab.on { color: #f3e3b6; border-color: var(--brass); border-bottom-color: var(--red); box-shadow: inset 0 0 18px var(--brass-glow), 0 0 12px var(--brass-glow); }
+  .ticks span { font: 700 9px "Segoe UI", system-ui, sans-serif; color: var(--muted); letter-spacing: .12em; text-transform: uppercase; }
   .keygrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0 30px; max-width: 700px; }
   .keygrid .row { margin-bottom: 10px; }
   .keygrid label { min-width: 140px; }
@@ -1136,9 +1138,13 @@ export class Menus {
       </div>
       <div class="row">
         <label for="startLevel">Practice start</label>
-        <input type="range" id="startLevel" min="1" max="60" value="${this.save.startLevel || 1}">
+        <input type="range" id="startLevel" min="1" max="60" value="${this.save.startLevel || 1}" list="presetTicks">
+        <datalist id="presetTicks">${DIFFICULTIES.map((d) => `<option value="${d.startLevel}" label="${d.name}"></option>`).join('')}</datalist>
         <span id="startLevelVal">${this.save.startLevel ? `level ${this.save.startLevel}` : 'off'}</span>
         <span id="startLevelBadge" ${this.save.startLevel ? '' : 'hidden'}>${NO_SCORE_BADGE}</span>
+      </div>
+      <div class="ticks" style="margin:-10px 0 4px 146px;max-width:260px;position:relative;height:14px">
+        ${DIFFICULTIES.map((d) => `<span style="position:absolute;left:${((d.startLevel - 1) / 59) * 100}%;transform:translateX(-50%)">${d.name}</span>`).join('')}
       </div>
       <p class="hint" style="margin:-6px 0 0 146px;max-width:560px">Open the run on any level with the awards a preset
         would have banked there, to practise a wave the presets skip. Such a run counts for nothing.</p>
@@ -1204,6 +1210,16 @@ export class Menus {
             const keys = this.save.keys[action] ?? DEFAULT_BINDINGS[action];
             return `<div class="row"><label>${ACTION_LABELS[action]}</label>
               <button class="key" data-action="${action}">${keys.map((k) => escapeHtml(keyName(k))).join(' / ')}</button></div>`;
+          })
+          .join('')}
+      </div>
+      <p class="hint" style="margin:14px 0 8px">Player 2 on the keyboard, when two share this screen:</p>
+      <div class="keygrid">
+        ${(Object.keys(DEFAULT_SEAT_B) as BindableAction[])
+          .map((action) => {
+            const keys = this.save.keysB[action] ?? DEFAULT_SEAT_B[action];
+            return `<div class="row"><label>${ACTION_LABELS[action]}</label>
+              <button class="key" data-action="${action}" data-seat="b">${keys.map((k) => escapeHtml(keyName(k))).join(' / ')}</button></div>`;
           })
           .join('')}
       </div>
@@ -1370,15 +1386,18 @@ export class Menus {
           if (code && RESERVED_KEYS.has(code)) {
             keyNote.textContent = `${keyName(code)} is the game's own key and cannot be bound.`;
             keyNote.hidden = false;
-            button.textContent = (this.save.keys[action] ?? DEFAULT_BINDINGS[action as BindableAction])
-              .map((k) => keyName(k)).join(' / ');
+            const current = button.dataset.seat === 'b'
+              ? (this.save.keysB[action] ?? DEFAULT_SEAT_B[action as BindableAction])
+              : (this.save.keys[action] ?? DEFAULT_BINDINGS[action as BindableAction]);
+            button.textContent = current.map((k) => keyName(k)).join(' / ');
             button.classList.remove('listening');
             return;
           }
-          if (code) this.save.setKey(action, code, DEFAULT_BINDINGS, add);
+          if (code && button.dataset.seat === 'b') this.save.setKeyB(action, code, DEFAULT_SEAT_B, add);
+          else if (code) this.save.setKey(action, code, DEFAULT_BINDINGS, add);
           this.callbacks.onKeys();
           this.renderOptions();
-          inner.querySelector<HTMLButtonElement>(`button.key[data-action="${action}"]`)?.focus();
+          inner.querySelector<HTMLButtonElement>(`button.key[data-action="${action}"][data-seat="${button.dataset.seat ?? ''}"]`)?.focus();
         };
         const onKey = (event: KeyboardEvent): void => {
           event.preventDefault();
@@ -1715,11 +1734,18 @@ export class Menus {
           }
         </div>
         <button class="btn primary" id="again">Play again</button>
+        ${result.level >= 2 && !result.practice ? `<button class="btn secondary" id="practise">Practise level ${result.level} here</button>` : ''}
         <button class="btn secondary" data-go="rooms">Choose another room</button>
         <button class="btn secondary" data-go="title">Main menu</button>
       </div>
     `);
     inner.querySelector<HTMLButtonElement>('#again')!.addEventListener('click', () => {
+      this.callbacks.onStart(result.roomId, this.selectedCharacter);
+    });
+    inner.querySelector<HTMLButtonElement>('#practise')?.addEventListener('click', () => {
+      // The wave that ended the run, again, with what a preset would bank there;
+      // a practice start counts for nothing and the debrief will say so.
+      this.save.setStartLevel(result.level);
       this.callbacks.onStart(result.roomId, this.selectedCharacter);
     });
     this.wireGoButtons(inner);

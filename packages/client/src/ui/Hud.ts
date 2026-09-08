@@ -110,7 +110,14 @@ export class Hud {
     this.lastLevel = world.level;
 
     const player = world.players[this.localPlayerIndex];
-    if (player && player.state === 'alive') this.drawLowHealth(ctx, player);
+    // The heartbeat answers whichever seat on this screen is worst off.
+    let worst: Player | null = null;
+    for (let seat = 0; seat < Math.max(1, this.localSeats); seat++) {
+      const local = world.players[seat === 0 ? this.localPlayerIndex : seat];
+      if (!local || local.state !== 'alive') continue;
+      if (!worst || local.life / local.maxLife < worst.life / worst.maxLife) worst = local;
+    }
+    if (worst) this.drawLowHealth(ctx, worst);
 
     this.stripExtents.length = 0;
     this.drawPopups(ctx, camera, scale);
@@ -265,19 +272,20 @@ export class Hud {
       const t = Math.max(0, Math.min(tx, ty));
       const x = Math.max(margin, Math.min(width - margin, at.x + cos * t));
       const y = Math.max(margin, Math.min(height - margin, at.y + sin * t));
+      // A ring with a dot, nothing like a threat's chevron: a friend that way.
       ctx.translate(x, y);
-      ctx.rotate(partner.angle);
       ctx.beginPath();
-      ctx.moveTo(9 * s, 0);
-      ctx.lineTo(-6 * s, -6 * s);
-      ctx.lineTo(-3 * s, 0);
-      ctx.lineTo(-6 * s, 6 * s);
-      ctx.closePath();
-      ctx.fillStyle = 'rgba(233,226,208,0.85)';
+      ctx.arc(0, 0, 7 * s, 0, Math.PI * 2);
       ctx.strokeStyle = 'rgba(0,0,0,0.7)';
-      ctx.lineWidth = 1.5 * s;
-      ctx.fill();
+      ctx.lineWidth = 4 * s;
       ctx.stroke();
+      ctx.strokeStyle = 'rgba(233,226,208,0.9)';
+      ctx.lineWidth = 2 * s;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(Math.cos(partner.angle) * 4 * s, Math.sin(partner.angle) * 4 * s, 1.8 * s, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(233,226,208,0.95)';
+      ctx.fill();
       ctx.setTransform(1, 0, 0, 1, 0, 0);
     }
     for (const marker of nearest) {

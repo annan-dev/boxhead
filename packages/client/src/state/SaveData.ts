@@ -95,6 +95,8 @@ export interface SaveState {
   keys?: Record<string, string[]> | undefined;
   /** Gamepad buttons by action; absent actions use the defaults. */
   pad?: Record<string, number[]> | undefined;
+  /** The second seat's keys by action; absent actions use the defaults. */
+  keysB?: Record<string, string[]> | undefined;
   /** One-time tips already shown. */
   tipsSeen?: string[] | undefined;
   /** Whether the one-time tips show at all. */
@@ -381,6 +383,24 @@ export class SaveData {
   resetKeys(): void {
     delete this.state.keys;
     delete this.state.pad;
+    delete this.state.keysB;
+    this.persist();
+  }
+
+  get keysB(): Record<string, string[]> {
+    return this.state.keysB ?? {};
+  }
+
+  /** Bind one of the second seat's actions to a key, replacing or adding beside it. */
+  setKeyB(action: string, code: string, defaults: Record<string, string[]>, add = false): void {
+    const keys = { ...this.keysB };
+    for (const other of Object.keys(defaults)) {
+      const current = keys[other] ?? defaults[other] ?? [];
+      keys[other] = current.filter((c) => c !== code);
+    }
+    const kept = add ? (keys[action] ?? []) : [];
+    keys[action] = [...kept.filter((c) => c !== code), code].slice(-2);
+    this.state.keysB = keys;
     this.persist();
   }
 
@@ -708,7 +728,9 @@ export class SaveData {
 
   /** The progress code as a link to this page, for carrying it in one click. */
   exportLink(): string {
-    const base = `${window.location.origin}${window.location.pathname}`;
+    // From a file on disk the origin is "null" in some browsers; the address
+    // bar's own text is always right.
+    const base = window.location.href.split('#')[0]!;
     return `${base}#progress=${encodeURIComponent(this.exportCode())}`;
   }
 

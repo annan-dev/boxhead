@@ -137,7 +137,7 @@ export function keyName(code: string): string {
  * The second seat's keys when two people share one keyboard: arrows move,
  * Enter or right Shift fires, comma and full stop cycle. Not rebindable.
  */
-const SEAT_B: Bindings = {
+export const DEFAULT_SEAT_B: Bindings = {
   up: ['ArrowUp'],
   down: ['ArrowDown'],
   left: ['ArrowLeft'],
@@ -148,6 +148,7 @@ const SEAT_B: Bindings = {
   pause: ['Backspace'],
 };
 const ARROWS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
+let SEAT_B: Bindings = DEFAULT_SEAT_B;
 
 const MOVE_DIRECTIONS: Record<'up' | 'down' | 'left' | 'right', [number, number]> = {
   up: [0, -1],
@@ -204,6 +205,16 @@ export class Input {
   /** Seats driven from this machine: one, or two sharing the screen. */
   private localPlayers = 1;
   private pad: PadBindings = DEFAULT_PAD;
+
+  /** Install the second seat's keys; an empty action keeps its default. */
+  setSeatBBindings(bindings: Partial<Bindings>): void {
+    const merged = { ...DEFAULT_SEAT_B } as Bindings;
+    for (const action of Object.keys(DEFAULT_SEAT_B) as BindableAction[]) {
+      const keys = bindings[action];
+      if (keys && keys.length > 0) merged[action] = keys;
+    }
+    SEAT_B = merged;
+  }
 
   /** Install the pad's bindings; an empty action keeps its default. */
   setPadBindings(bindings: Partial<Record<PadAction, number[]>>): void {
@@ -324,7 +335,7 @@ export class Input {
 
   /** The first seat's action for a key; arrows are the second seat's when it exists. */
   private seatAAction(code: string): BindableAction | undefined {
-    if (this.localPlayers === 2 && ARROWS.has(code)) return undefined;
+    if (this.localPlayers === 2 && (ARROWS.has(code) || this.seatBAction(code))) return undefined;
     return this.keyToAction.get(code);
   }
 

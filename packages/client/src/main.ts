@@ -120,6 +120,7 @@ const rooms: ExtractedRoom[] = pack.rooms.length > 0 ? pack.rooms : ROOMS;
 const save = new SaveData();
 const input = new Input(canvas);
 input.setBindings(save.keys as Partial<Bindings>);
+input.setSeatBBindings(save.keysB as Partial<Bindings>);
 input.setPadBindings(save.pad as Partial<PadBindings>);
 
 // The original's own menu pictures: logo, level icons, portraits. Optional;
@@ -227,6 +228,7 @@ const menus = new Menus(app, pack, rooms, save, screens, {
   onFeel: () => applyFeelSettings(),
   onKeys: () => {
     input.setBindings(save.keys as Partial<Bindings>);
+    input.setSeatBBindings(save.keysB as Partial<Bindings>);
     input.setPadBindings(save.pad as Partial<PadBindings>);
   },
   onPadSeen: () => {
