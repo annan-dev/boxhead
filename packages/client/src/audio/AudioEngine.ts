@@ -76,9 +76,15 @@ export class AudioEngine {
     this.ready = true;
   }
 
-  /** Call from a real user gesture. */
-  resume(): void {
-    void this.context?.resume();
+  /** Call from a real user gesture. Resolves true once the context is running. */
+  async resume(): Promise<boolean> {
+    if (!this.context) return false;
+    try {
+      await this.context.resume();
+    } catch {
+      return false;
+    }
+    return this.context.state === 'running';
   }
 
   setVolume(value: number): void {

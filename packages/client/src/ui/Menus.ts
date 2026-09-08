@@ -268,6 +268,9 @@ export class Menus {
       if (this.current === 'none') return;
       if (this.current === 'title' || this.current === 'debrief') return;
       event.preventDefault();
+      // The game loop listens on the same key; a screen this handler closes
+      // must not be reopened by it on the same press.
+      event.stopImmediatePropagation();
       if (this.current === 'pause') {
         this.callbacks.onResume();
         return;

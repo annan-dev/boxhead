@@ -28,6 +28,7 @@ import {
   encode,
   tickMsFor,
   worldFromConfig,
+  sanitizeCommand,
 } from '@boxhead/shared';
 import type {
   ExtractedRoom,
@@ -91,6 +92,8 @@ const RECLAIM_GRACE_MS = 60_000;
 const MAX_QUEUE = 8;
 /** Cosmetic events buffered between snapshots. */
 const MAX_EVENTS = 64;
+/** Commands accepted from one frame; a client sends a handful at most. */
+const MAX_COMMANDS_PER_FRAME = 16;
 
 let seedCounter = 0;
 
@@ -183,6 +186,7 @@ export class Room {
         this.resetInput(reserved);
         this.participants.set(id, reserved);
         this.world?.setPlayerConnected(reserved.playerIndex, true, character);
+        this.resumeClock();
         this.announce(reserved, 'playerJoined');
         return reserved;
       }
@@ -223,6 +227,7 @@ export class Room {
     }
     this.participants.set(id, participant);
     this.world?.setPlayerConnected(playerIndex, true, character);
+    this.resumeClock();
     this.announce(participant, 'playerJoined');
     return participant;
   }
@@ -241,6 +246,8 @@ export class Room {
     this.resetInput(participant);
     this.world?.setPlayerConnected(participant.playerIndex, false);
     this.passHost(participant);
+    // Nobody left to play: hold the clock so the world waits for them.
+    if (this.playerCount === 0) this.stopTimer();
 
     if (reserve) {
       const timer = setTimeout(() => this.release(participant), RECLAIM_GRACE_MS);
@@ -451,11 +458,19 @@ export class Room {
   applyInput(id: string, commands: StampedCommand[]): void {
     const participant = this.participants.get(id);
     if (!participant || !participant.connected) return;
+    const map = this.world?.map;
+    let accepted = 0;
     for (const stamped of commands) {
-      if (!stamped || typeof stamped.tick !== 'number' || !stamped.command) continue;
+      if (accepted >= MAX_COMMANDS_PER_FRAME) break;
+      if (!stamped || !Number.isSafeInteger(stamped.tick) || stamped.tick < 0) continue;
+      // Everything off the wire is untrusted: a bad field must not reach the
+      // simulation, where a NaN would corrupt the seat for the whole room.
+      const command = sanitizeCommand(stamped.command, map?.width ?? 4096, map?.height ?? 4096);
+      if (!command) continue;
       const newest = participant.queue[participant.queue.length - 1]?.tick ?? participant.lastTick;
       if (stamped.tick <= newest) continue;
-      participant.queue.push({ tick: stamped.tick, command: stamped.command });
+      accepted += 1;
+      participant.queue.push({ tick: stamped.tick, command });
       while (participant.queue.length > MAX_QUEUE) participant.queue.shift();
     }
   }
@@ -469,6 +484,11 @@ export class Room {
     // A timer at half the tick with an accumulator keeps the tick rate honest
     // even though setInterval is not precise.
     this.timer = setInterval(() => this.pump(), Math.max(1, Math.floor(this.tickMs / 2)));
+  }
+
+  /** Restart a clock that was held while the room stood empty mid-match. */
+  private resumeClock(): void {
+    if (this.phase === 'playing' && !this.timer && this.world) this.startTimer();
   }
 
   private stopTimer(): void {

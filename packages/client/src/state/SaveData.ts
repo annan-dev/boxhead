@@ -220,9 +220,13 @@ export class SaveData {
     roomId: string,
     roomIndex: number,
     result: { score: number; level: number; kills: number },
+    /** Eligibility as it stood when the run began; options may change mid-run. */
+    counts = this.countsForHighScores,
+    /** How many arenas exist, so the last one has nothing to unlock. */
+    roomCount = Number.POSITIVE_INFINITY,
   ): { isBest: boolean; unlockedNext: boolean } {
     // A practice run is never banked: no score, no unlock.
-    if (!this.countsForHighScores) return { isBest: false, unlockedNext: false };
+    if (!counts) return { isBest: false, unlockedNext: false };
     const previous = this.recordFor(roomId);
     const isBest = result.score > previous.score;
     this.state.rooms[roomId] = {
@@ -234,7 +238,7 @@ export class SaveData {
 
     // Reaching a decent level in an arena opens the next one along.
     let unlockedNext = false;
-    if (result.level >= UNLOCK_LEVEL && roomIndex + 1 >= this.state.unlockedRooms) {
+    if (result.level >= UNLOCK_LEVEL && roomIndex + 1 >= this.state.unlockedRooms && roomIndex + 1 < roomCount) {
       this.state.unlockedRooms = Math.max(this.state.unlockedRooms, roomIndex + 2);
       unlockedNext = true;
     }

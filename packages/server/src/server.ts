@@ -32,15 +32,34 @@ export interface GameServer {
 }
 
 const MAX_NAME = 24;
+/** Rooms a single server will host at once. */
+const MAX_ROOMS = 32;
+/** Largest frame accepted; a real client sends a few hundred bytes. */
+const MAX_PAYLOAD = 16 * 1024;
+/** Silence after which a socket is presumed dead and its seat released for reclaim. */
+const IDLE_TIMEOUT_MS = 15_000;
+/** A connection that never joins is dropped after this long. */
+const JOIN_TIMEOUT_MS = 10_000;
+const ROOM_ID = /^[A-Za-z0-9_-]{1,32}$/;
+
+/** Printable characters only, so a name cannot forge log lines or the health page. */
+function cleanText(value: unknown, max: number, fallback: string): string {
+  const text = String(value ?? '')
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, '')
+    .trim()
+    .slice(0, max);
+  return text || fallback;
+}
 
 export function createGameServer(options: GameServerOptions): Promise<GameServer> {
   const log = options.log ?? console.log;
   const arenas = options.rooms;
   const rooms = new Map<string, Room>();
 
-  function roomFor(id: string): Room {
+  function roomFor(id: string): Room | null {
     let room = rooms.get(id);
     if (!room) {
+      if (rooms.size >= MAX_ROOMS) return null;
       const created = new Room({
         id,
         rooms: arenas,
@@ -95,20 +114,50 @@ export function createGameServer(options: GameServerOptions): Promise<GameServer
     response.writeHead(404).end();
   });
 
-  const wss = new WebSocketServer({ server: http, perMessageDeflate: true });
+  const wss = new WebSocketServer({ server: http, perMessageDeflate: true, maxPayload: MAX_PAYLOAD });
+
+  // Liveness: a socket that goes silent (a laptop lid, a dropped Wi-Fi link)
+  // never sends a close frame, and the OS may take minutes to notice. The
+  // client pings every second, so silence is a clear sign.
+  const lastSeen = new Map<WebSocket, number>();
+  const hasJoined = new Map<WebSocket, boolean>();
+  const reaper = setInterval(() => {
+    const now = Date.now();
+    for (const [client, seen] of lastSeen) {
+      const limit = hasJoined.get(client) ? IDLE_TIMEOUT_MS : JOIN_TIMEOUT_MS;
+      if (now - seen > limit) client.terminate();
+    }
+  }, 2_000);
+  reaper.unref();
 
   wss.on('connection', (socket: WebSocket) => {
     const clientId = randomUUID();
     let joined: Room | null = null;
+    lastSeen.set(socket, Date.now());
+    hasJoined.set(socket, false);
 
     const send = (message: ServerMessage): void => {
       if (socket.readyState === socket.OPEN) socket.send(encode(message));
     };
+    // Room broadcasts that arrive while a join is still being answered wait
+    // behind the welcome, so the client always learns its seat first.
+    let welcomed = false;
+    const held: string[] = [];
     const sendText = (text: string): void => {
+      if (!welcomed) {
+        held.push(text);
+        return;
+      }
       if (socket.readyState === socket.OPEN) socket.send(text);
+    };
+    const flush = (): void => {
+      welcomed = true;
+      for (const text of held) sendText(text);
+      held.length = 0;
     };
 
     socket.on('message', (raw: Buffer | ArrayBuffer | Buffer[]) => {
+      lastSeen.set(socket, Date.now());
       const message = decodeClientMessage(raw.toString());
       if (!message) return;
 
@@ -120,11 +169,16 @@ export function createGameServer(options: GameServerOptions): Promise<GameServer
             socket.close();
             return;
           }
-          const roomId =
-            typeof message.room === 'string' && message.room !== '' ? message.room.slice(0, 64) : arenas[0]!.id;
+          const requested = typeof message.room === 'string' ? message.room : '';
+          const roomId = ROOM_ID.test(requested) ? requested : arenas[0]!.id;
           const room = roomFor(roomId);
-          const name = String(message.name ?? 'player').slice(0, MAX_NAME) || 'player';
-          const character = String(message.character ?? 'swat');
+          if (!room) {
+            send({ type: 'reject', reason: 'server is full' });
+            socket.close();
+            return;
+          }
+          const name = cleanText(message.name, MAX_NAME, 'player');
+          const character = cleanText(message.character, 24, 'swat');
           const token = typeof message.token === 'string' ? message.token : undefined;
           const participant = token === undefined
             ? room.join(clientId, name, character, sendText)
@@ -139,7 +193,9 @@ export function createGameServer(options: GameServerOptions): Promise<GameServer
             return;
           }
           joined = room;
+          hasJoined.set(socket, true);
           send(room.welcomeFor(participant));
+          flush();
           log(`[${room.id}] ${participant.name} joined as seat ${participant.playerIndex} (${room.playerCount} connected)`);
           break;
         }
@@ -180,6 +236,8 @@ export function createGameServer(options: GameServerOptions): Promise<GameServer
     });
 
     socket.on('close', () => {
+      lastSeen.delete(socket);
+      hasJoined.delete(socket);
       if (!joined) return;
       const participant = joined.leave(clientId);
       if (participant) log(`[${joined.id}] ${participant.name} dropped; seat ${participant.playerIndex} held`);
@@ -199,6 +257,7 @@ export function createGameServer(options: GameServerOptions): Promise<GameServer
         rooms,
         close: () =>
           new Promise<void>((done) => {
+            clearInterval(reaper);
             for (const room of rooms.values()) room.stop();
             rooms.clear();
             for (const client of wss.clients) client.terminate();

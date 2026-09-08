@@ -148,6 +148,9 @@ export interface EffectSnapshot {
   size: number;
   seed: number;
   variant: string;
+  /** Drift, for rocket smoke. */
+  vx: number;
+  vy: number;
 }
 
 export interface NavSnapshot {

@@ -20,6 +20,7 @@ import {
   hasSightThroughObjects,
   moveCircle,
   raycast,
+  sweepClear,
 } from '../map/MapCollide.js';
 import { SpatialHash } from '../spatial/SpatialHash.js';
 import { Rng } from '../math/Rng.js';
@@ -137,6 +138,8 @@ export interface WorldOptions {
 }
 
 const MAX_AFFECT_DEPTH = 4;
+/** A range no shot ever reaches; finite so it survives JSON, unlike Infinity. */
+const UNLIMITED_RANGE = 1e9;
 /** Ticks a fully-released wave may linger before the next one starts anyway. */
 const WAVE_GRACE_TICKS = 1200;
 /** Scratch buffer for spatial queries; reused so queries never allocate. */
@@ -534,6 +537,24 @@ export class World {
     this.placeables.push(placeable);
     this.byId[id] = placeable;
     this.hash.insert(id, x, y);
+    // A barrel is an obstacle to navigation, as the original's Object flag made it.
+    if (type === 'barrel') {
+      const cell = this.map.cellOf(x, y);
+      this.map.setOccupied(cell.cx, cell.cy, true);
+    }
+  }
+
+  /** Clear a barrel's cell for navigation once it is gone. */
+  private releaseBarrelCell(placeable: Placeable): void {
+    if (placeable.type !== 'barrel') return;
+    const cell = this.map.cellOf(placeable.x, placeable.y);
+    // Another live barrel may share the cell (room barrels on one marker).
+    for (const other of this.placeables) {
+      if (other === placeable || !other.alive || other.type !== 'barrel') continue;
+      const otherCell = this.map.cellOf(other.x, other.y);
+      if (otherCell.cx === cell.cx && otherCell.cy === cell.cy) return;
+    }
+    this.map.setOccupied(cell.cx, cell.cy, false);
   }
 
   /**
@@ -702,6 +723,12 @@ export class World {
    */
   private phaseNav(): void {
     if (this.players.length === 0) return;
+    // Geometry changed (a wall built or broken, a barrel placed or blown):
+    // every field is rebuilt at once, so no creature ever steers on a stale
+    // one and a restored world can reproduce the fields exactly.
+    for (const nav of this.navs) {
+      if (nav.isStale()) nav.refresh();
+    }
     this.navCursor = (this.navCursor + 1) % this.players.length;
     const player = this.players[this.navCursor]!;
     const nav = this.navs[this.navCursor]!;
@@ -805,8 +832,10 @@ export class World {
         continue;
       }
       if (player.state === 'dead') {
-        // An empty seat stays down until someone takes it.
+        // An empty seat stays down until someone takes it, and a finished
+        // co-op run brings nobody back.
         if (!player.connected) continue;
+        if (this.gameOver && MODES[this.mode].killTarget === null) continue;
         player.stateTicks += 1;
         player.respawnTimer -= 1;
         if (player.respawnTimer <= 0) this.respawn(player);
@@ -1325,21 +1354,16 @@ export class World {
         }
       }
 
-      // Steer down the flow field toward the target; straight at it only
-      // where the field has nothing to say (the target's own cell, or a cell
-      // the field cannot reach).
-      let dirX: number;
-      let dirY: number;
-      const nav = this.navFor(target);
-      const cell = this.map.cellOf(enemy.x, enemy.y);
-      const flow = nav?.directionAt(cell.cx, cell.cy);
-      if (flow) {
-        dirX = flow.x;
-        dirY = flow.y;
-      } else {
-        dirX = toTargetX / distanceToTarget;
-        dirY = toTargetY / distanceToTarget;
-      }
+      // Steer toward the farthest point along the flow-field route that can
+      // be reached in a straight slide (the original's `Nav_Direction` also
+      // prefers the direct line to the player whenever it shortens the way),
+      // so a crowd cuts corners cleanly rather than staircasing cell by cell.
+      const goal = this.steerGoal(enemy, target);
+      let dirX = goal.x - enemy.x;
+      let dirY = goal.y - enemy.y;
+      const goalLength = Math.hypot(dirX, dirY) || 1;
+      dirX /= goalLength;
+      dirY /= goalLength;
 
       const separation = this.separationFor(enemy);
       dirX += separation.x;
@@ -1348,11 +1372,50 @@ export class World {
 
       enemy.vx = (dirX / steerLength) * enemy.speed;
       enemy.vy = (dirY / steerLength) * enemy.speed;
-      // The original's creatures face one of eight directions.
-      enemy.angle = (Math.round((Math.atan2(enemy.vy, enemy.vx) / TAU) * 8) / 8) * TAU;
+      enemy.angle = this.facing(enemy.angle, Math.atan2(enemy.vy, enemy.vx));
       enemy.moving = true;
       enemy.animStep += 1;
     }
+  }
+
+  /**
+   * One of eight facings, kept until the heading has clearly left the
+   * current sector. Without the hysteresis a body jostled by a crowd flips
+   * between two facings every tick, which reads as flicker.
+   */
+  private facing(current: number, heading: number): number {
+    const sector = TAU / 8;
+    let delta = heading - current;
+    delta -= Math.round(delta / TAU) * TAU;
+    if (Math.abs(delta) <= sector / 2 + 0.22) return current;
+    const snapped = (Math.round(heading / sector) * sector) % TAU;
+    return snapped < 0 ? snapped + TAU : snapped;
+  }
+
+  /**
+   * Where a creature should head this tick: the player if the slide there is
+   * clear, else the farthest cell centre along the flow route it can slide
+   * to, else the next cell, else straight at the player.
+   */
+  private steerGoal(enemy: Enemy, target: Player): { x: number; y: number } {
+    const nav = this.navFor(target);
+    const cell = this.map.cellOf(enemy.x, enemy.y);
+    if (sweepClear(this.map, enemy.x, enemy.y, target.x, target.y, enemy.radius)) {
+      return { x: target.x, y: target.y };
+    }
+    let cx = cell.cx;
+    let cy = cell.cy;
+    let best: { x: number; y: number } | null = null;
+    for (let i = 0; i < 8; i++) {
+      const step = nav?.stepAt(cx, cy);
+      if (!step) break;
+      cx += step[0];
+      cy += step[1];
+      const centre = this.map.centreOf(cx, cy);
+      if (i > 0 && !sweepClear(this.map, enemy.x, enemy.y, centre.x, centre.y, enemy.radius)) break;
+      best = centre;
+    }
+    return best ?? { x: target.x, y: target.y };
   }
 
   private navFor(player: Player): MapNav | null {
@@ -1452,9 +1515,9 @@ export class World {
       damage: FIREBALL.damage,
       knockback: 0,
       // It flies until it hits something.
-      life: 100000,
+      life: UNLIMITED_RANGE,
       travelled: 0,
-      maxRange: Infinity,
+      maxRange: UNLIMITED_RANGE,
       pierce: false,
       splashRadius: atObject ? FIREBALL.objectSplashRadius : FIREBALL.splashRadius,
       splashDamage: FIREBALL.damage,
@@ -1703,7 +1766,7 @@ export class World {
       if (shot.fuse > 0) {
         shot.fuse -= 1;
         if (shot.fuse === 0) {
-          this.explode(shot.x, shot.y, shot.splashRadius, shot.splashDamage, shot.ownerId, shot.cluster, 0);
+          this.explodeShot(shot, shot.x, shot.y);
           shot.alive = false;
           continue;
         }
@@ -1716,9 +1779,7 @@ export class World {
       }
       if (shot.life <= 0 || (!shot.hitscan && shot.travelled > shot.maxRange)) {
         // Anything explosive goes off where it stops, grenades included.
-        if (shot.splashRadius > 0) {
-          this.explode(shot.x, shot.y, shot.splashRadius, shot.splashDamage, shot.ownerId, shot.cluster, 0);
-        }
+        if (shot.splashRadius > 0) this.explodeShot(shot, shot.x, shot.y);
         shot.alive = false;
         continue;
       }
@@ -1934,10 +1995,11 @@ export class World {
       // A claymore trips when a zombie steps on it, then beeps for two
       // seconds before it goes off, as the original's does.
       if (placeable.type === 'mine' && placeable.armTime === 0 && placeable.fuse < 0) {
+        // Widened by the largest body radius, since the trip test below adds it.
         const count = this.hash.queryCircle(
           placeable.x,
           placeable.y,
-          placeable.triggerRadius,
+          placeable.triggerRadius + 16,
           QUERY_BUFFER,
         );
         for (let i = 0; i < count; i++) {
@@ -1962,6 +2024,7 @@ export class World {
     if (!placeable.alive) return;
     placeable.detonating = true;
     placeable.alive = false;
+    this.releaseBarrelCell(placeable);
     this.explode(
       placeable.x,
       placeable.y,
@@ -2141,7 +2204,7 @@ export class World {
         knockback: 0,
         life: fuse,
         travelled: 0,
-        maxRange: Infinity,
+        maxRange: UNLIMITED_RANGE,
         pierce: false,
         splashRadius: affect.radius,
         splashDamage: affect.damage,
@@ -2353,7 +2416,9 @@ export class World {
     this.multiplierTicks = this.multiplierTicksFor(this.multiplier);
     if (this.multiplier <= this.peakMultiplier) return;
     for (const award of awardsBetween(this.peakMultiplier, this.multiplier)) {
-      for (const player of this.players) this.grantAward(player, award, silent);
+      for (const player of this.players) this.grantAward(player, award);
+      // One banner per award, not one per seat.
+      if (!silent) this.pushMessage(award.message, 'upgrade', 150);
     }
     this.peakMultiplier = this.multiplier;
   }
@@ -2471,6 +2536,8 @@ export class World {
   }
 
   private phaseScore(): void {
+    // A finished run neither drains nor advances.
+    if (this.gameOver) return;
     const mode = MODES[this.mode];
     if (!mode.sharedScore) {
       // The original's `CUpgrades.Process` returns at once in deathmatch: the
@@ -2542,7 +2609,7 @@ export class World {
     this.playSound('CLICK', anchor?.x ?? 0, anchor?.y ?? 0);
   }
 
-  private grantAward(player: Player, award: Award, silent: boolean): void {
+  private grantAward(player: Player, award: Award): void {
     if (award.kind === 'weapon') {
       const slot = player.weapons.get(award.weapon)!;
       slot.unlocked = true;
@@ -2561,7 +2628,6 @@ export class World {
         slot.ammo = Math.max(slot.ammo, Math.round(WEAPONS[award.weapon].totalAmmo * stats.ammoMul));
       }
     }
-    if (!silent) this.pushMessage(award.message, 'upgrade', 150);
   }
 
   /** Drop dead entities and reclaim their ids. */
@@ -2810,6 +2876,8 @@ export class World {
         size: e.size,
         seed: e.seed,
         variant: e.variant,
+        vx: e.vx,
+        vy: e.vy,
       })),
       affects: this.pendingAffects.map((a) => ({ ...a })),
       navs: this.navs.map((nav) => nav.getTarget()),
@@ -2973,12 +3041,20 @@ export class World {
         alive: true,
         prevX: e.x,
         prevY: e.y,
-        vx: 0,
-        vy: 0,
         radius: e.size,
         z: 0,
       });
     }
+
+    // Barrel occupancy is derived from the placeables, so rebuild it without
+    // disturbing the restored revision.
+    this.map.occupied.fill(0);
+    for (const placeable of this.placeables) {
+      if (placeable.type !== 'barrel' || !placeable.alive) continue;
+      const cell = this.map.cellOf(placeable.x, placeable.y);
+      if (this.map.inBounds(cell.cx, cell.cy)) this.map.occupied[this.map.index(cell.cx, cell.cy)] = 1;
+    }
+    this.map.revision = snapshot.map.revision;
 
     // Flow fields are derived state, but a field built on a different tick
     // steers the horde differently for a while; rebuild them as they were.

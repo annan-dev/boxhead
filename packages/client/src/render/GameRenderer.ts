@@ -553,7 +553,7 @@ export class GameRenderer {
     const isZombie = def.headGroup === 'Zombie';
 
     let anim = this.animFor(enemy, isZombie ? 'Zombie_' : '');
-    if (enemy.windup > 0) anim = isZombie ? 'Zombie_Attack' : 'Devil_Attack';
+    if (enemy.windup > 0 && enemy.state === 'alive') anim = isZombie ? 'Zombie_Attack' : 'Devil_Attack';
 
     const layers: Layer[] = [];
     this.addLayer(layers, 'Player', anim, enemy.angle, step);

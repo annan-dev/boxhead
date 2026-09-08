@@ -119,8 +119,11 @@ export class Input {
 
   private readonly onPointerDown = (event: PointerEvent): void => {
     if (!this.enabled) return;
-    this.pointerDown = true;
     this.updatePointer(event);
+    // Only the primary button fires; the context menu is suppressed, so a
+    // right click would otherwise shoot.
+    if (event.button !== 0) return;
+    this.pointerDown = true;
   };
 
   private readonly onPointerUp = (): void => {

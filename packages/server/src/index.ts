@@ -15,6 +15,10 @@ import { createGameServer } from './server.js';
 import { loadRooms } from './rooms.js';
 
 const port = Number(process.env.PORT ?? DEFAULT_PORT);
+if (!Number.isInteger(port) || port < 0 || port > 65535) {
+  console.error(`PORT must be a whole number between 0 and 65535, not ${JSON.stringify(process.env.PORT)}`);
+  process.exit(1);
+}
 const rooms = loadRooms();
 
 const clientPath = join(import.meta.dirname, '..', '..', 'client', 'dist', 'boxhead.html');

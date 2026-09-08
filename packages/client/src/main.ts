@@ -113,12 +113,18 @@ const audio = new AudioEngine();
 void audio.init(SOUND_NAMES);
 audio.setVolume(save.volume);
 if (save.muted) audio.toggleMute();
+// Browsers only unlock audio on a gesture they count as activation, which
+// an Escape press or a touch-start is not, so keep trying until it takes.
 const unlock = (): void => {
-  audio.resume();
-  window.removeEventListener('pointerdown', unlock);
-  window.removeEventListener('keydown', unlock);
+  void audio.resume().then((running) => {
+    if (!running) return;
+    window.removeEventListener('pointerdown', unlock);
+    window.removeEventListener('pointerup', unlock);
+    window.removeEventListener('keydown', unlock);
+  });
 };
 window.addEventListener('pointerdown', unlock);
+window.addEventListener('pointerup', unlock);
 window.addEventListener('keydown', unlock);
 
 /** Cheap noise for cosmetic ambience; never touches the simulation. */
@@ -137,6 +143,9 @@ interface Run {
   camera: Camera;
   /** What the run started with; a restart uses the same. */
   characterId: string;
+  /** Eligibility as it stood at the start; the options screen may change it mid-run. */
+  countsForHighScores: boolean;
+  practiceReason: string | null;
 }
 
 let run: Run | null = null;
@@ -191,10 +200,12 @@ function netSession(): NetSession | null {
   return run?.session instanceof NetSession ? run.session : null;
 }
 
+let hintTimer = 0;
 function showHint(text: string, ms = 4200): void {
   hint.innerHTML = text;
   hint.classList.add('on');
-  window.setTimeout(() => hint.classList.remove('on'), ms);
+  window.clearTimeout(hintTimer);
+  hintTimer = window.setTimeout(() => hint.classList.remove('on'), ms);
 }
 
 /** Sound and rebinding, on behalf of whichever session is running. */
@@ -222,6 +233,8 @@ function bind(session: Session, characterId: string): void {
   const names = session instanceof NetSession ? (index: number) => session.nameOf(index) : () => null;
   run = {
     session,
+    countsForHighScores: save.countsForHighScores,
+    practiceReason: save.practiceReason,
     renderer: new GameRenderer(world, pack, session.localPlayerIndex),
     hud: new Hud(world, Math.max(0, session.localPlayerIndex), names),
     camera,
@@ -258,8 +271,8 @@ function connect(address: string, name: string, characterId: string): void {
       lastLobby = state;
       const view: LobbyView = { ...state, address: netAddress, status: netStatus };
       // A match in progress on arrival is joined straight away; the lobby is
-      // for before and after.
-      if (state.phase === 'playing' && !menus.isOpen) return;
+      // for before and after, and a pause menu open mid-match keeps its place.
+      if (state.phase === 'playing' && menus.screen !== 'lobby') return;
       menus.setLobby(view);
     },
     onStart: () => {
@@ -306,11 +319,13 @@ function recordRun(): RunResult | null {
   if (!run || debriefed || !run.session.recordsScores) return null;
   debriefed = true;
   const { world, room } = run.session;
-  const outcome = save.recordRun(room.id, room.index, {
-    score: world.score,
-    level: world.level,
-    kills: world.kills,
-  });
+  const outcome = save.recordRun(
+    room.id,
+    room.index,
+    { score: world.score, level: world.level, kills: world.kills },
+    run.countsForHighScores,
+    rooms.length,
+  );
   return {
     roomId: room.id,
     roomName: room.name,
@@ -319,7 +334,7 @@ function recordRun(): RunResult | null {
     kills: world.kills,
     isBest: outcome.isBest,
     unlockedNext: outcome.unlockedNext,
-    practice: save.practiceReason,
+    practice: run.practiceReason,
   } satisfies RunResult;
 }
 
@@ -419,8 +434,12 @@ const loop = new Loop(
         return;
       }
       const { camera, renderer, hud } = run;
-      camera.interpolate(alpha);
-      renderer.draw(ctx, camera, alpha);
+      // A world that is not stepping has nothing to interpolate toward; a
+      // varying alpha would shuttle everything between its last two positions.
+      const frozen = !(run.session instanceof NetSession) && (paused || menus.isOpen);
+      const blend = frozen ? 1 : alpha;
+      camera.interpolate(blend);
+      renderer.draw(ctx, camera, blend);
       hud.draw(ctx, camera);
 
       if (paused && !menus.isOpen) {

@@ -43,6 +43,7 @@ export {
   decodeClientMessage,
   decodeServerMessage,
   serverUrl,
+  sanitizeCommand,
 } from './net/Protocol.js';
 export type {
   ClientMessage,

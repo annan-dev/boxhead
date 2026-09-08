@@ -652,3 +652,62 @@ test('the multiplier window is real time: more ticks at Fast, fewer at Slow', ()
   assert.equal(multiplierWindow(1, 2), 300);
   assert.equal(multiplierWindow(1, 0.5), 75);
 });
+
+// ---- regressions from the bug hunt ----------------------------------------
+
+test('a snapshot with a fireball in flight survives JSON and keeps flying', () => {
+  const { world, player } = quietWorld();
+  const devil = (world as unknown as { addEnemy(id: string, x: number, y: number): Enemy | null })
+    .addEnemy('devil', player.x + 120, player.y)!;
+  devil.angle = Math.PI;
+  for (let i = 0; i < 200 && !world.shots.some((s) => s.kind === 'fireball'); i++) {
+    world.step([command(player.x + 100, player.y, false)]);
+  }
+  assert.ok(world.shots.some((s) => s.kind === 'fireball'), 'no fireball to snapshot');
+
+  const copy = new World({ room, seed: 5, playerCount: 1 });
+  copy.restore(JSON.parse(JSON.stringify(world.snapshot())));
+  for (let i = 0; i < 5; i++) {
+    world.step([command(player.x + 100, player.y, false)]);
+    copy.step([command(player.x + 100, player.y, false)]);
+  }
+  assert.equal(copy.shots.filter((s) => s.kind === 'fireball').length, world.shots.filter((s) => s.kind === 'fireball').length);
+  assert.equal(copy.stateHash(), world.stateHash(), 'the JSON round trip changed the simulation');
+});
+
+test('a grenade with Big Bang goes off three times', () => {
+  const { world, player } = quietWorld();
+  arm(player, 'grenade');
+  player.held.push({ weapon: 'grenade', upgrade: 'BigBang' });
+  player.stats = computeStats(player.held);
+  world.step([command(player.x + 100, player.y, false)]);
+  for (let i = 0; i < 10; i++) world.step([command(player.x + 100, player.y, true)]);
+  world.step([command(player.x + 100, player.y, false)]);
+  world.sounds.length = 0;
+  for (let i = 0; i < 200; i++) world.step([command(player.x + 100, player.y, false)]);
+  const blasts = world.sounds.filter((s) => s.name === 'Effect.Explosion').length;
+  assert.equal(blasts, 3, `expected the grenade blast plus two more, got ${blasts}`);
+});
+
+test('an award is announced once, however many seats there are', () => {
+  const world = new World({ room, seed: 5, playerCount: 4 });
+  const player = world.players[0]!;
+  player.invincible = 0;
+  arm(player, 'railgun');
+  for (const d of [40, 60, 80, 100, 120]) spawnEnemy(world, player.x + d, player.y);
+  const idle = [emptyCommand(), emptyCommand(), emptyCommand(), emptyCommand()];
+  world.step([command(player.x + 200, player.y, false), ...idle.slice(1)]);
+  world.step([command(player.x + 200, player.y, true), ...idle.slice(1)]);
+  const banners = world.messages.filter((m) => m.text.includes('UZI'));
+  assert.equal(banners.length, 1, `UZI banner shown ${banners.length} times`);
+});
+
+test('a finished co-op run brings nobody back', () => {
+  const { world, player } = quietWorld();
+  player.life = 1;
+  for (let i = 0; i < 3; i++) spawnEnemy(world, player.x + 25, player.y);
+  for (let i = 0; i < 300 && !world.gameOver; i++) world.step([emptyCommand()]);
+  assert.ok(world.gameOver);
+  for (let i = 0; i < 600; i++) world.step([emptyCommand()]);
+  assert.notEqual(player.state, 'alive', 'the player respawned after the run ended');
+});

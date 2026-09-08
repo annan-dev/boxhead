@@ -50,6 +50,43 @@ export function circleBlocked(map: GameMap, x: number, y: number, radius: number
   return false;
 }
 
+/**
+ * True when a body of `radius` can slide straight from one point to another
+ * without touching a wall, a barricade or an occupied cell. Sampled every
+ * half cell, which is fine-grained enough for creature-sized bodies.
+ */
+export function sweepClear(
+  map: GameMap,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  radius: number,
+): boolean {
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  const length = Math.hypot(dx, dy);
+  if (length === 0) return true;
+  const steps = Math.ceil(length / (map.cell * 0.5));
+  const cell = map.cell;
+  for (let step = 1; step <= steps; step++) {
+    const t = step / steps;
+    const x = x0 + dx * t;
+    const y = y0 + dy * t;
+    const minX = Math.floor((x - radius) / cell);
+    const maxX = Math.floor((x + radius) / cell);
+    const minY = Math.floor((y - radius) / cell);
+    const maxY = Math.floor((y + radius) / cell);
+    for (let cy = minY; cy <= maxY; cy++) {
+      for (let cx = minX; cx <= maxX; cx++) {
+        if (map.passable(cx, cy)) continue;
+        if (circleOverlapsCell(map, x, y, radius, cx, cy)) return false;
+      }
+    }
+  }
+  return true;
+}
+
 /** Move a circle, resolving each axis independently so it slides on contact. */
 export function moveCircle(
   map: GameMap,

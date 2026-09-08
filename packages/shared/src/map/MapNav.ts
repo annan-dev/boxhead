@@ -54,9 +54,15 @@ export class MapNav {
     return { targetCell: this.targetCell, revision: this.builtRevision };
   }
 
-  /** Rebuild toward a snapshotted target, or forget it when it is stale. */
+  /**
+   * Rebuild toward a snapshotted target. The revision it was built at does
+   * not matter: a live world rebuilds every field that is behind the map
+   * before anything reads it (`World.phaseNav`), so building against the
+   * current map here yields the same field the live one will hold.
+   */
   setTarget(targetCell: number, revision: number): void {
-    if (targetCell < 0 || revision !== this.map.revision) {
+    void revision;
+    if (targetCell < 0) {
       this.cost.fill(UNREACHABLE);
       this.flow.fill(-1);
       this.builtRevision = -1;
@@ -66,9 +72,19 @@ export class MapNav {
     this.build(targetCell % this.map.cols, (targetCell / this.map.cols) | 0);
   }
 
+  /** True when the field was built against an older map than the current one. */
+  isStale(): boolean {
+    return this.targetCell >= 0 && this.builtRevision !== this.map.revision;
+  }
+
+  /** Rebuild toward the same target against the current map. */
+  refresh(): void {
+    if (this.targetCell < 0) return;
+    this.build(this.targetCell % this.map.cols, (this.targetCell / this.map.cols) | 0);
+  }
+
   private enterCost(cx: number, cy: number): number {
-    const tile = this.map.tileAt(cx, cy);
-    if (tile !== Tile.Floor) return -1;
+    if (!this.map.passable(cx, cy)) return -1;
     return COST_FLOOR;
   }
 
@@ -110,8 +126,8 @@ export class MapNav {
         // `Nav_VD` drops both adjacent diagonals whenever a straight step is
         // blocked, so a crowd never squeezes through a corner.
         if (offset[0] !== 0 && offset[1] !== 0) {
-          const blockedX = map.tileAt(cx + offset[0], cy) !== Tile.Floor;
-          const blockedY = map.tileAt(cx, cy + offset[1]) !== Tile.Floor;
+          const blockedX = !map.passable(cx + offset[0], cy);
+          const blockedY = !map.passable(cx, cy + offset[1]);
           if (blockedX || blockedY) continue;
         }
 
@@ -145,12 +161,19 @@ export class MapNav {
 
   /** Unit direction a creature should move to approach the target. */
   directionAt(cx: number, cy: number): { x: number; y: number } | null {
+    const offset = this.stepAt(cx, cy);
+    if (!offset) return null;
+    const length = Math.hypot(offset[0], offset[1]) || 1;
+    return { x: offset[0] / length, y: offset[1] / length };
+  }
+
+  /** The cell offset of the next step toward the target, or null at the target or off the field. */
+  stepAt(cx: number, cy: number): readonly [number, number] | null {
     if (!this.map.inBounds(cx, cy)) return null;
     const step = this.flow[this.map.index(cx, cy)]!;
     if (step < 0) return null;
     const offset = NEIGHBOURS[step]!;
-    const length = Math.hypot(offset[0], offset[1]) || 1;
-    return { x: offset[0] / length, y: offset[1] / length };
+    return [offset[0], offset[1]];
   }
 
   costAt(cx: number, cy: number): number {

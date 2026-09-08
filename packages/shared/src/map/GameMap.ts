@@ -16,7 +16,7 @@ export const Tile = {
   Floor: 0,
   /** Permanent geometry from the room layout. */
   Solid: 1,
-  /** Player-placed barricade; zombies will chew through it. */
+  /** Player-placed barricade; solid until shot or blasted down. */
   Breakable: 2,
 } as const;
 export type TileType = (typeof Tile)[keyof typeof Tile];
@@ -41,6 +41,12 @@ export class GameMap {
   readonly tiles: Uint8Array;
   /** Hit points for breakable cells; 0 elsewhere. */
   readonly integrity: Uint16Array;
+  /**
+   * Cells holding a solid object (a barrel), which navigation must route
+   * around exactly as the original's `mCollide_Object` flag made it do.
+   * Movement collision does not read this; barrels push bodies themselves.
+   */
+  readonly occupied: Uint8Array;
   readonly spawns: SpawnPoints;
   /** Solid blocks with their heights, for drawing the arena in 3D. */
   readonly blocks: readonly RoomBlock[];
@@ -65,6 +71,7 @@ export class GameMap {
     this.height = room.height;
     this.tiles = Uint8Array.from(room.tiles);
     this.integrity = new Uint16Array(this.cols * this.rows);
+    this.occupied = new Uint8Array(this.cols * this.rows);
     this.blocks = room.blocks;
     this.floorLayers = room.floor.layers;
     this.spawns = {
@@ -88,6 +95,23 @@ export class GameMap {
   tileAt(cx: number, cy: number): TileType {
     if (!this.inBounds(cx, cy)) return Tile.Solid;
     return this.tiles[cy * this.cols + cx] as TileType;
+  }
+
+  /** True when a creature may path through the cell: open floor with no object on it. */
+  passable(cx: number, cy: number): boolean {
+    if (!this.inBounds(cx, cy)) return false;
+    const index = cy * this.cols + cx;
+    return this.tiles[index] === Tile.Floor && this.occupied[index] === 0;
+  }
+
+  /** Mark or clear an object on a cell; navigation rebuilds on the change. */
+  setOccupied(cx: number, cy: number, on: boolean): void {
+    if (!this.inBounds(cx, cy)) return;
+    const index = cy * this.cols + cx;
+    const value = on ? 1 : 0;
+    if (this.occupied[index] === value) return;
+    this.occupied[index] = value;
+    this.revision += 1;
   }
 
   isBlocked(cx: number, cy: number): boolean {

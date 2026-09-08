@@ -60,6 +60,30 @@ export interface LobbyPlayer {
 }
 
 /** One tick of intent, numbered by the client so the server can echo it back. */
+/**
+ * Coerce a command off the wire into something the simulation can trust:
+ * finite numbers, movement clamped to the unit square, aim clamped to the
+ * arena, booleans that are really booleans, a slot that is a digit or null.
+ * Returns null for anything that is not an object.
+ */
+export function sanitizeCommand(raw: unknown, width: number, height: number): InputCommand | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  const num = (v: unknown, fallback = 0): number => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
+  const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
+  const slot = r['weaponSlot'];
+  return {
+    moveX: clamp(num(r['moveX']), -1, 1),
+    moveY: clamp(num(r['moveY']), -1, 1),
+    aimX: clamp(num(r['aimX']), -width, width * 2),
+    aimY: clamp(num(r['aimY']), -height, height * 2),
+    fire: r['fire'] === true,
+    weaponSlot: typeof slot === 'number' && Number.isInteger(slot) && slot >= 0 && slot <= 9 ? slot : null,
+    nextWeapon: r['nextWeapon'] === true,
+    prevWeapon: r['prevWeapon'] === true,
+  };
+}
+
 export interface StampedCommand {
   tick: number;
   command: InputCommand;

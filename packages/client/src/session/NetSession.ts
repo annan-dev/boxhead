@@ -78,9 +78,18 @@ export class NetSession implements Session {
   private lobbyPlayers: LobbyPlayer[] = [];
   private pending: Extract<ServerMessage, { type: 'snapshot' }> | null = null;
   private lastSnapshot: WorldSnapshot | null = null;
+  /**
+   * The tile arrays from the last full snapshot, at the server's revision.
+   * The server sends tiles only when its own map changed, but this client's
+   * prediction may have changed its copy first (a shot into a barricade, a
+   * barrel placed), so a lean snapshot is completed from here rather than
+   * refused for a revision mismatch.
+   */
+  private serverTiles: { revision: number; integrityRevision: number; tiles: number[]; integrity: number[] } | null = null;
   private lastPlayers: PlayerSnapshot[] = [];
   private readonly remote: InputCommand[] = [];
-  private lastCosmeticSeq = 0;
+  private lastPopupSeq = 0;
+  private lastMessageSeq = 0;
   private skipSteps = 0;
   private netState: NetState = 'idle';
   private netDetail = '';
@@ -180,8 +189,30 @@ export class NetSession implements Session {
         this.events.onStart();
         break;
       case 'snapshot':
-        // Only the newest matters; the step applies it.
-        if (!this.pending || message.tick > this.pending.tick) this.pending = message;
+        // Only the newest state matters, but two snapshots that land between
+        // steps must not lose what only the older one carried: the tile
+        // arrays the server sends once per map revision, and the events.
+        if (!this.pending) {
+          this.pending = message;
+        } else if (message.tick > this.pending.tick) {
+          const older = this.pending;
+          const tiles = older.snapshot.map.tiles;
+          const integrity = older.snapshot.map.integrity;
+          if (
+            !message.snapshot.map.tiles &&
+            tiles &&
+            integrity &&
+            older.snapshot.map.revision === message.snapshot.map.revision &&
+            older.snapshot.map.integrityRevision === message.snapshot.map.integrityRevision
+          ) {
+            message.snapshot.map.tiles = tiles;
+            message.snapshot.map.integrity = integrity;
+          }
+          message.events = [...older.events, ...message.events];
+          this.pending = message;
+        } else {
+          this.pending.events = [...this.pending.events, ...message.events];
+        }
         break;
       case 'playerJoined':
       case 'playerLeft':
@@ -234,7 +265,8 @@ export class NetSession implements Session {
     this.lastSnapshot = snapshot;
     this.lastPlayers = snapshot.players;
     this.remote.length = 0;
-    this.lastCosmeticSeq = 0;
+    this.lastPopupSeq = 0;
+    this.lastMessageSeq = 0;
     this.skipSteps = 0;
     this.presenterHolder.present?.worldReplaced();
   }
@@ -284,6 +316,22 @@ export class NetSession implements Session {
   private applySnapshot(message: Extract<ServerMessage, { type: 'snapshot' }>, present: Presenter): void {
     this.pending = null;
     const { world } = this;
+    const map = message.snapshot.map;
+    if (map.tiles && map.integrity) {
+      this.serverTiles = {
+        revision: map.revision,
+        integrityRevision: map.integrityRevision,
+        tiles: map.tiles,
+        integrity: map.integrity,
+      };
+    } else if (
+      this.serverTiles &&
+      this.serverTiles.revision === map.revision &&
+      this.serverTiles.integrityRevision === map.integrityRevision
+    ) {
+      map.tiles = this.serverTiles.tiles;
+      map.integrity = this.serverTiles.integrity;
+    }
     const dt = this.lastSnapshot ? message.tick - this.lastSnapshot.tick : 0;
     for (const player of message.snapshot.players) {
       if (player.index === this.localPlayerIndex) continue;
@@ -358,14 +406,14 @@ export class NetSession implements Session {
           present.playSound({ name: event.name, x: event.x, y: event.y, rate: event.rate, ownerId: event.ownerId });
           break;
         case 'popup':
-          if (event.seq <= this.lastCosmeticSeq) break;
-          this.lastCosmeticSeq = event.seq;
+          if (event.seq <= this.lastPopupSeq) break;
+          this.lastPopupSeq = event.seq;
           this.world.popups.push({ seq: event.seq, x: event.x, y: event.y, text: event.text, life: 45, kind: event.kind });
           if (this.world.popups.length > 24) this.world.popups.shift();
           break;
         case 'message':
-          if (event.seq <= this.lastCosmeticSeq) break;
-          this.lastCosmeticSeq = event.seq;
+          if (event.seq <= this.lastMessageSeq) break;
+          this.lastMessageSeq = event.seq;
           this.world.messages.push({ seq: event.seq, text: event.text, kind: event.kind, life: event.life });
           if (this.world.messages.length > 6) this.world.messages.shift();
           break;

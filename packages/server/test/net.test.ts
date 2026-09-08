@@ -247,3 +247,43 @@ test('a mirror that restores a snapshot and replays its own inputs matches the s
   assert.ok(captured >= 190, `only ${captured} snapshots reconciled`);
   room.stop();
 });
+
+// ---- input hygiene ----------------------------------------------------------
+
+test('a malformed or absurd command never reaches the simulation', () => {
+  const room = new Room({ id: 'test', rooms: ROOMS, maxPlayers: 2, snapshotInterval: 3 });
+  const a = room.join('A', 'alpha', 'swat', () => {})!;
+  room.join('B', 'beta', 'swat', () => {});
+  room.setReady('B', true);
+  assert.ok(room.start('A'));
+  const world = room.world!;
+  const player = world.players[a.playerIndex]!;
+  const before = { x: player.x, y: player.y };
+
+  const bad = [
+    { tick: 1, command: {} },
+    { tick: 2, command: { moveX: 'abc', moveY: Number.NaN, aimX: Infinity, fire: 'yes' } },
+    { tick: 3, command: { moveX: 50, moveY: 0, aimX: 0, aimY: 0, fire: false, weaponSlot: 99, nextWeapon: 1, prevWeapon: false } },
+  ] as unknown as StampedCommand[];
+  room.applyInput('A', bad);
+  room.advance(3);
+  assert.ok(Number.isFinite(player.x) && Number.isFinite(player.y), 'position went non-finite');
+  assert.ok(Math.abs(player.x - before.x) <= 3 * 2.56 + 0.01, 'a clamped move still moved too far');
+  assert.ok(Number.isFinite(player.angle));
+  const text = JSON.stringify(world.snapshot().players);
+  assert.ok(!text.includes('null'), 'a player field became null');
+});
+
+test('a non-finite tick does not lock the sender out', () => {
+  const room = new Room({ id: 'test', rooms: ROOMS, maxPlayers: 2, snapshotInterval: 3 });
+  const a = room.join('A', 'alpha', 'swat', () => {})!;
+  room.join('B', 'beta', 'swat', () => {});
+  room.setReady('B', true);
+  assert.ok(room.start('A'));
+  room.applyInput('A', [{ tick: Infinity, command: emptyCommand() }] as StampedCommand[]);
+  room.applyInput('A', [{ tick: 1, command: { ...emptyCommand(), moveX: 1 } }]);
+  const player = room.world!.players[a.playerIndex]!;
+  const x = player.x;
+  room.advance(2);
+  assert.ok(player.x > x, 'a later valid command was ignored');
+});
