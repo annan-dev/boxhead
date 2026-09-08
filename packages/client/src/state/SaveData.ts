@@ -22,6 +22,8 @@ export interface SavedRun {
   /** The second seat's character when the run was shared-screen. */
   secondCharacterId?: string;
   mode?: 'coop' | 'deathmatch';
+  /** A custom start level the run opened on, or 0. */
+  startLevel?: number;
   /** The world, as `World.snapshot()` wrote it. */
   snapshot: unknown;
   /** For the title's label. */
@@ -103,6 +105,10 @@ export interface SaveState {
   secondCharacterId?: string | undefined;
   /** Shared screen: survive together, or head to head. */
   sharedMode?: 'coop' | 'deathmatch' | undefined;
+  /** A custom starting level for practice; 0 means the difficulty preset decides. */
+  startLevel?: number | undefined;
+  /** The Options tab last opened. */
+  optionsTab?: string | undefined;
   /** The camera leans toward the aim. */
   cameraLead?: boolean | undefined;
   /** Markers outlined and the heartbeat framed, for players who need more than colour. */
@@ -468,7 +474,27 @@ export class SaveData {
    * flag those options and the debrief says so.
    */
   get countsForHighScores(): boolean {
-    return this.state.devils && this.state.gameSpeed !== 'slow';
+    return this.state.devils && this.state.gameSpeed !== 'slow' && this.startLevel === 0;
+  }
+
+  /** A practice start: any level from 2 to 60, or 0 for the preset's own. */
+  get startLevel(): number {
+    const level = Math.floor(this.state.startLevel ?? 0);
+    return Number.isFinite(level) && level >= 2 && level <= 60 ? level : 0;
+  }
+
+  setStartLevel(level: number): void {
+    this.state.startLevel = Math.max(0, Math.min(60, Math.floor(level)));
+    this.persist();
+  }
+
+  get optionsTab(): string {
+    return this.state.optionsTab ?? 'game';
+  }
+
+  setOptionsTab(tab: string): void {
+    this.state.optionsTab = tab;
+    this.persist();
   }
 
   /** Why the current settings do not count, for the menus. */
@@ -476,6 +502,7 @@ export class SaveData {
     const reasons: string[] = [];
     if (!this.state.devils) reasons.push('devils off');
     if (this.state.gameSpeed === 'slow') reasons.push('slow speed');
+    if (this.startLevel > 0) reasons.push(`custom start at level ${this.startLevel}`);
     return reasons.length > 0 ? reasons.join(', ') : null;
   }
 
@@ -552,8 +579,8 @@ export class SaveData {
    * settings stay where they are.
    */
   exportCode(): string {
-    const { rooms, unlockedRooms, history, tipsSeen } = this.state;
-    const json = JSON.stringify({ v: 1, rooms, unlockedRooms, history, tipsSeen });
+    const { rooms, unlockedRooms, history } = this.state;
+    const json = JSON.stringify({ v: 1, rooms, unlockedRooms, history });
     return `BH1.${btoa(unescape(encodeURIComponent(json)))}`;
   }
 
@@ -570,9 +597,44 @@ export class SaveData {
     } catch {
       return false;
     }
-    if (parsed.v !== 1 || typeof parsed.rooms !== 'object') return false;
+    if (parsed.v !== 1 || !parsed.rooms || typeof parsed.rooms !== 'object') return false;
+    // Nothing from outside reaches a best unchecked: every number must be a
+    // finite count, or the record is left out.
+    const count = (value: unknown): number | null =>
+      typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.floor(value) : null;
+    const cleanRecord = (raw: unknown): RoomRecord | null => {
+      if (!raw || typeof raw !== 'object') return null;
+      const r = raw as Record<string, unknown>;
+      const score = count(r['score']);
+      const level = count(r['level']);
+      const kills = count(r['kills']);
+      const plays = count(r['plays']);
+      if (score === null || level === null || kills === null || plays === null) return null;
+      const byDifficulty: Record<string, { score: number; level: number }> = {};
+      if (r['byDifficulty'] && typeof r['byDifficulty'] === 'object') {
+        for (const [difficulty, best] of Object.entries(r['byDifficulty'] as Record<string, unknown>)) {
+          if (!best || typeof best !== 'object') continue;
+          const b = best as Record<string, unknown>;
+          const bs = count(b['score']);
+          const bl = count(b['level']);
+          if (bs !== null && bl !== null) byDifficulty[difficulty] = { score: bs, level: bl };
+        }
+      }
+      return {
+        score,
+        level,
+        kills,
+        plays,
+        difficulty: typeof r['difficulty'] === 'string' ? r['difficulty'] : undefined,
+        peakMultiplier: count(r['peakMultiplier']) ?? 0,
+        seconds: count(r['seconds']) ?? 0,
+        byDifficulty,
+      };
+    };
     const rooms = { ...this.state.rooms };
-    for (const [id, record] of Object.entries(parsed.rooms ?? {})) {
+    for (const [id, rawRecord] of Object.entries(parsed.rooms as Record<string, unknown>)) {
+      const record = cleanRecord(rawRecord);
+      if (!record) continue;
       const mine = rooms[id];
       if (!mine) {
         rooms[id] = record;
@@ -599,16 +661,36 @@ export class SaveData {
     }
     this.state.rooms = rooms;
     this.state.unlockedRooms = Math.max(this.state.unlockedRooms, Number(parsed.unlockedRooms) || 1);
-    const history = [...(parsed.history ?? []), ...this.history]
-      .filter((entry) => entry && typeof entry.at === 'number')
+    const history = [...(Array.isArray(parsed.history) ? parsed.history : []), ...this.history]
+      .filter(
+        (entry) =>
+          entry &&
+          typeof entry === 'object' &&
+          typeof entry.roomId === 'string' &&
+          count(entry.at) !== null &&
+          count(entry.score) !== null &&
+          count(entry.level) !== null,
+      )
+      .map((entry) => ({
+        roomId: entry.roomId,
+        difficulty: typeof entry.difficulty === 'string' ? entry.difficulty : 'beginner',
+        score: count(entry.score)!,
+        level: count(entry.level)!,
+        kills: count(entry.kills) ?? 0,
+        seconds: count(entry.seconds) ?? 0,
+        at: count(entry.at)!,
+      }))
       .sort((a, b) => b.at - a.at)
       .slice(0, 10);
     this.state.history = history;
-    if (Array.isArray(parsed.tipsSeen)) {
-      this.state.tipsSeen = [...new Set([...(this.state.tipsSeen ?? []), ...parsed.tipsSeen])];
-    }
     this.persist();
     return true;
+  }
+
+  /** The progress code as a link to this page, for carrying it in one click. */
+  exportLink(): string {
+    const base = `${window.location.origin}${window.location.pathname}`;
+    return `${base}#progress=${encodeURIComponent(this.exportCode())}`;
   }
 
   /** Clear every stored score and unlock, for the options screen. */

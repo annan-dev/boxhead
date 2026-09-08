@@ -462,8 +462,11 @@ export class Menus {
   private current: Screen = 'none';
   /** Where a secondary screen (options, how to play) returns to. */
   private origin: Screen = 'title';
-  /** Which page of the options is open; remembered across visits. */
-  private optionsTab: 'game' | 'sound' | 'feel' | 'controls' | 'progress' = 'game';
+  /** Which page of the options is open; remembered in the save. */
+  private get optionsTab(): 'game' | 'sound' | 'feel' | 'controls' | 'progress' {
+    const tab = this.save.optionsTab;
+    return tab === 'sound' || tab === 'feel' || tab === 'controls' || tab === 'progress' ? tab : 'game';
+  }
   private selectedCharacter: string;
   private selectedRoom: string;
   /** True while seated on a server; changes what pause and quit mean. */
@@ -1119,6 +1122,14 @@ export class Menus {
         <input type="checkbox" id="devils" ${this.save.devils ? 'checked' : ''}>
         <span id="devilsBadge" ${this.save.devils ? 'hidden' : ''}>${NO_SCORE_BADGE}</span>
       </div>
+      <div class="row">
+        <label for="startLevel">Practice start</label>
+        <input type="range" id="startLevel" min="1" max="60" value="${this.save.startLevel || 1}">
+        <span id="startLevelVal">${this.save.startLevel ? `level ${this.save.startLevel}` : 'off'}</span>
+        <span id="startLevelBadge" ${this.save.startLevel ? '' : 'hidden'}>${NO_SCORE_BADGE}</span>
+      </div>
+      <p class="hint" style="margin:-6px 0 0 146px;max-width:560px">Open the run on any level with the awards a preset
+        would have banked there, to practise a wave the presets skip. Such a run counts for nothing.</p>
       </section>
       <section data-tab="sound" ${this.optionsTab === 'sound' ? '' : 'hidden'}>
       <div class="row">
@@ -1213,8 +1224,9 @@ export class Menus {
           <textarea id="progressCode" rows="2" spellcheck="false" style="width:100%;box-sizing:border-box;font:12px ui-monospace,Consolas,monospace;
             background:linear-gradient(#1d1d21,#141417);color:var(--bone);border:1px solid #000;padding:8px;resize:vertical;
             box-shadow:inset 0 1px 0 rgba(255,255,255,.06),inset 0 0 0 1px rgba(201,167,90,.18)">${escapeHtml(this.save.exportCode())}</textarea>
-          <div style="display:flex;gap:10px;margin-top:8px;align-items:center">
+          <div style="display:flex;gap:10px;margin-top:8px;align-items:center;flex-wrap:wrap">
             <button class="key" id="copyCode" type="button">copy</button>
+            <button class="key" id="copyLink" type="button">copy as link</button>
             <button class="key" id="importCode" type="button">import what is pasted</button>
             <span id="codeNote" class="hint"></span>
           </div>
@@ -1227,7 +1239,7 @@ export class Menus {
     this.backButton(inner, this.origin);
     for (const tab of inner.querySelectorAll<HTMLButtonElement>('button.tab')) {
       tab.addEventListener('click', () => {
-        this.optionsTab = tab.dataset.tab as typeof this.optionsTab;
+        this.save.setOptionsTab(tab.dataset.tab ?? 'game');
         for (const other of inner.querySelectorAll<HTMLButtonElement>('button.tab')) other.classList.toggle('on', other === tab);
         for (const section of inner.querySelectorAll<HTMLElement>('section[data-tab]')) section.hidden = section.dataset.tab !== tab.dataset.tab;
       });
@@ -1313,6 +1325,15 @@ export class Menus {
       this.save.setDevils(devils.checked);
       devilsBadge.hidden = devils.checked;
     });
+    const startLevel = inner.querySelector<HTMLInputElement>('#startLevel')!;
+    const startLevelValue = inner.querySelector<HTMLSpanElement>('#startLevelVal')!;
+    const startLevelBadge = inner.querySelector<HTMLSpanElement>('#startLevelBadge')!;
+    startLevel.addEventListener('input', () => {
+      const level = Number(startLevel.value);
+      this.save.setStartLevel(level <= 1 ? 0 : level);
+      startLevelValue.textContent = this.save.startLevel ? `level ${this.save.startLevel}` : 'off';
+      startLevelBadge.hidden = this.save.startLevel === 0;
+    });
 
     const keyNote = inner.querySelector<HTMLDivElement>('#keyNote')!;
     for (const button of inner.querySelectorAll<HTMLButtonElement>('button.key[data-action]')) {
@@ -1373,8 +1394,20 @@ export class Menus {
       if (navigator.clipboard?.writeText) navigator.clipboard.writeText(codeField.value).then(done, done);
       else done();
     });
+    inner.querySelector<HTMLButtonElement>('#copyLink')!.addEventListener('click', () => {
+      const link = this.save.exportLink();
+      codeField.value = link;
+      codeField.select();
+      const done = (): void => {
+        codeNote.textContent = 'link copied: open it in the other copy of the game';
+      };
+      if (navigator.clipboard?.writeText) navigator.clipboard.writeText(link).then(done, done);
+      else done();
+    });
     inner.querySelector<HTMLButtonElement>('#importCode')!.addEventListener('click', () => {
-      if (this.save.importCode(codeField.value)) {
+      const pasted = codeField.value.trim();
+      const fromLink = /#progress=([^&]+)/.exec(pasted);
+      if (this.save.importCode(fromLink ? decodeURIComponent(fromLink[1]!) : pasted)) {
         codeNote.textContent = 'merged';
         this.renderOptions();
       } else {

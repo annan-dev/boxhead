@@ -408,6 +408,7 @@ function startRun(roomId: string, characterId: string): void {
     difficulty: save.difficulty,
     gameSpeed: save.gameSpeed,
     devils: save.devils,
+    ...(save.startLevel > 0 ? { startLevel: save.startLevel } : {}),
     ...(save.sharedScreen ? { secondCharacterId: save.secondCharacterId, mode: save.sharedMode } : {}),
   });
   bind(session, characterId);
@@ -450,6 +451,7 @@ function parkRun(): void {
     devils: world.devilsEnabled,
     countsForHighScores: run.countsForHighScores,
     practiceReason: run.practiceReason,
+    startLevel: session.customStart,
     ...(session.localSeats >= 2
       ? { secondCharacterId: world.players[1]?.characterId ?? save.secondCharacterId, mode: session.mode }
       : {}),
@@ -478,6 +480,7 @@ function continueRun(): void {
       gameSpeed: parked.gameSpeed,
       devils: parked.devils,
       snapshot: parked.snapshot as WorldSnapshot,
+      ...(parked.startLevel ? { startLevel: parked.startLevel } : {}),
       ...(parked.secondCharacterId ? { secondCharacterId: parked.secondCharacterId, mode: parked.mode ?? 'coop' } : {}),
     });
   } catch {
@@ -921,6 +924,15 @@ function drawStats(): void {
   });
 }
 
+// A link can carry progress from another copy of the game: #progress=BH1...
+const progressLink = /#progress=([^&]+)/.exec(window.location.hash);
+if (progressLink) {
+  const merged = save.importCode(decodeURIComponent(progressLink[1]!));
+  history.replaceState(null, '', window.location.pathname + window.location.search);
+  save.setOptionsTab('progress');
+  menus.show('options');
+  showHint(merged ? '<b>progress merged</b> from the link' : 'that link held no progress', 5000);
+} else {
 // A shared link can carry the server: boxhead.html?server=host:port
 const linkedServer = new URLSearchParams(window.location.search).get('server');
 if (linkedServer) {
@@ -928,6 +940,7 @@ if (linkedServer) {
   menus.show('multiplayer');
 } else {
   menus.show('title');
+}
 }
 loop.start();
 

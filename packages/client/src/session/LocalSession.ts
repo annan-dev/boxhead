@@ -27,6 +27,26 @@ export interface LocalOptions {
   secondCharacterId?: string;
   /** Co-op waves or head-to-head deathmatch; only with a second seat. */
   mode?: GameMode;
+  /** A practice start on this level instead of the preset's; the multiplier follows the presets' curve. */
+  startLevel?: number;
+}
+
+/**
+ * The multiplier a custom start banks: the presets' own points (level 1 at
+ * x1, 10 at x10, 20 at x30, 35 at x50) joined by straight lines and carried
+ * on at the last slope, so a start between two presets sits between them.
+ */
+export function multiplierForStart(level: number): number {
+  const points = DIFFICULTIES.map((d) => [d.startLevel, d.startMultiplier] as const).sort((a, b) => a[0] - b[0]);
+  if (level <= points[0]![0]) return points[0]![1];
+  for (let i = 1; i < points.length; i++) {
+    const [l0, m0] = points[i - 1]!;
+    const [l1, m1] = points[i]!;
+    if (level <= l1) return Math.round(m0 + ((level - l0) / (l1 - l0)) * (m1 - m0));
+  }
+  const [l0, m0] = points[points.length - 2]!;
+  const [l1, m1] = points[points.length - 1]!;
+  return Math.round(m1 + ((level - l1) / (l1 - l0)) * (m1 - m0));
 }
 
 /** How far apart two players sharing one screen may get, in world pixels. */
@@ -43,6 +63,8 @@ export class LocalSession implements Session {
   /** The preset the run opened on, for the record it leaves behind. */
   readonly difficulty: string;
   readonly startLevel: number;
+  /** The custom level the run opened on, or 0 when the preset decided. */
+  readonly customStart: number;
   /** Seats driven from this machine. */
   readonly localSeats: number;
 
@@ -50,7 +72,10 @@ export class LocalSession implements Session {
     this.room = options.room;
     const difficulty = DIFFICULTIES.find((d) => d.id === options.difficulty) ?? DIFFICULTIES[0]!;
     this.difficulty = difficulty.id;
-    this.startLevel = difficulty.startLevel;
+    const custom = options.startLevel && options.startLevel >= 2 ? Math.floor(options.startLevel) : 0;
+    this.startLevel = custom || difficulty.startLevel;
+    this.customStart = custom;
+    const startMultiplier = custom ? multiplierForStart(custom) : difficulty.startMultiplier;
     const speed = GAME_SPEEDS.find((s) => s.id === options.gameSpeed) ?? GAME_SPEEDS[1]!;
     const shared = options.secondCharacterId !== undefined;
     this.localSeats = shared ? 2 : 1;
@@ -61,8 +86,8 @@ export class LocalSession implements Session {
       seed: Date.now() & 0xffff,
       playerCount: this.localSeats,
       characters: shared ? [options.characterId, options.secondCharacterId!] : [options.characterId],
-      startLevel: difficulty.startLevel,
-      startMultiplier: difficulty.startMultiplier,
+      startLevel: this.startLevel,
+      startMultiplier,
       devils: options.devils,
       speedFactor: speed.factor,
       mode: this.mode,

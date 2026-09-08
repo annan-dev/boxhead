@@ -57,3 +57,28 @@ test('a progress code carries bests and unlocks and merges upward', () => {
   assert.equal(target.isRoomUnlocked(1), true, 'the unlock arrives');
   assert.equal(target.history.length, 3);
 });
+
+test('a poisoned progress code cannot write a bad best', () => {
+  const save = new SaveData();
+  save.recordRun('r1', 0, { score: 1000, level: 4, kills: 10, startLevel: 1, difficulty: 'beginner' }, true, 18);
+  const bad = { v: 1, rooms: { r1: { level: 9, kills: 1, plays: 1 }, r2: { score: 'x', level: 2, kills: 0, plays: 1 }, r3: { score: -5, level: 1, kills: 0, plays: 1 } }, unlockedRooms: 'lots', history: [{ roomId: 'r1', at: 'never', score: 5, level: 1 }] };
+  const code = `BH1.${Buffer.from(JSON.stringify(bad), 'utf8').toString('base64')}`;
+  assert.equal(save.importCode(code), true);
+  assert.equal(save.recordFor('r1').score, 1000, 'a record without a score was ignored');
+  assert.equal(save.recordFor('r2').score, 0, 'a record with a string score was ignored');
+  assert.equal(save.recordFor('r3').score, 0, 'a negative score was ignored');
+  assert.equal(save.unlockedRooms, 2, 'a nonsense unlock count was ignored (the first run had earned room 2)');
+  assert.equal(save.history.length, 1, 'a history entry without a time was dropped');
+  assert.ok(Number.isFinite(save.totalBest));
+});
+
+test('a custom start level marks the run as practice', () => {
+  const save = new SaveData();
+  assert.equal(save.startLevel, 0);
+  save.setStartLevel(15);
+  assert.equal(save.startLevel, 15);
+  assert.equal(save.countsForHighScores, false);
+  assert.match(save.practiceReason ?? '', /custom start at level 15/);
+  save.setStartLevel(0);
+  assert.equal(save.countsForHighScores, true);
+});

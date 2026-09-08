@@ -105,6 +105,9 @@ The design that fell out of it is not what a level-based recreation assumes:
   the markers.
 - Two players on one screen are held within a screen of each other by the
   simulation; the original let a player walk off the edge.
+- A practice start opens a run on any level, with the awards a preset would
+  have banked there; the original offered only its four presets. Such a run
+  records nothing.
 
 To compare feel directly, run the SWF in [Ruffle](https://ruffle.rs) beside
 this build.
