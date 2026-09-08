@@ -711,3 +711,19 @@ test('a finished co-op run brings nobody back', () => {
   for (let i = 0; i < 600; i++) world.step([emptyCommand()]);
   assert.notEqual(player.state, 'alive', 'the player respawned after the run ended');
 });
+
+test('a fake wall on a spawn point\'s way out shuts that spawn', () => {
+  const world = new World({ room, seed: 5, playerCount: 1, devils: false });
+  // Wall every zombie spawn's entry cell: the first open neighbour east, south, west, north.
+  for (const spot of world.map.spawns.zombies) {
+    const cell = world.map.cellOf(spot.x, spot.y);
+    for (const [dx, dy] of [[1, 0], [0, 1], [-1, 0], [0, -1]] as const) {
+      if (world.map.tileAt(cell.cx + dx, cell.cy + dy) === 0) {
+        world.map.buildWall(cell.cx + dx, cell.cy + dy, 1000);
+        break;
+      }
+    }
+  }
+  for (let i = 0; i < 600; i++) world.step([emptyCommand()]);
+  assert.equal(world.enemies.length, 0, 'zombies spawned behind a wall across their exit');
+});

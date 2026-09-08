@@ -785,9 +785,14 @@ export class World {
   /**
    * Place an enemy on a spawn point, as the original's `Spawn_ValidPosition`
    * does: start at a random point, walk the list in order, and take the first
-   * whose cell is not already occupied by a body. Nothing about the player's
-   * view enters into it, so every entrance of a room gets its share; when all
-   * of them are blocked the spawn simply waits for the next tick.
+   * that is clear. Clear means the point's own cell and its entry cell (the
+   * first orthogonal neighbour, east, south, west then north, that is not
+   * solid map) carry no body and, for zombies, no object: a fake wall or a
+   * barrel on the way out of a spawn shuts it, which is how walling off a
+   * corridor stops the zombies coming from it. Devils only mind bodies; they
+   * raze whatever is in their way. Nothing about the player's view enters
+   * into it, so every entrance of a room gets its share; when all of them are
+   * blocked the spawn simply waits for the next tick.
    */
   private spawnAtEdge(defId: EnemyId): boolean {
     const devilSpots = this.map.spawns.devils;
@@ -799,9 +804,31 @@ export class World {
     for (let i = 0; i < spots.length; i++) {
       const spot = spots[(start + i) % spots.length]!;
       if (this.bodyNear(spot.x, spot.y, radius)) continue;
+      if (!this.spawnClear(spot, defId !== 'devil')) continue;
       return this.addEnemy(defId, spot.x, spot.y) !== null;
     }
     return false;
+  }
+
+  /** The original's `mCell | mNextCell` test against its no-spawn flags. */
+  private spawnClear(spot: { x: number; y: number }, mindObjects: boolean): boolean {
+    const cell = this.map.cellOf(spot.x, spot.y);
+    const cells: Array<{ cx: number; cy: number }> = [cell];
+    for (const [dx, dy] of [[1, 0], [0, 1], [-1, 0], [0, -1]] as const) {
+      const cx = cell.cx + dx;
+      const cy = cell.cy + dy;
+      if (this.map.tileAt(cx, cy) === Tile.Solid) continue;
+      cells.push({ cx, cy });
+      break;
+    }
+    for (const c of cells) {
+      if (mindObjects) {
+        if (this.map.tileAt(c.cx, c.cy) === Tile.Breakable) return false;
+        if (this.map.inBounds(c.cx, c.cy) && this.map.occupied[this.map.index(c.cx, c.cy)]) return false;
+      }
+      if (c !== cell && this.creatureOverlapsCell(c.cx, c.cy)) return false;
+    }
+    return true;
   }
 
   /** True when a living creature already stands on a spot. */

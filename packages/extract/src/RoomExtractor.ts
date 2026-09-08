@@ -42,7 +42,7 @@ interface Placement {
   depth: number;
 }
 
-function readPlacements(body: Buffer, nameOf: (id: number) => string): Placement[] {
+export function readPlacements(body: Buffer, nameOf: (id: number) => string): Placement[] {
   const out: Placement[] = [];
   for (const tag of spriteTags(body)) {
     if (tag.code !== PLACE_OBJECT && tag.code !== PLACE_OBJECT2 && tag.code !== PLACE_OBJECT3) {
@@ -169,7 +169,7 @@ function polygonArea(poly: Polygon): number {
   return Math.abs(area) / 2;
 }
 
-function pointInPolygon(x: number, y: number, poly: Polygon): boolean {
+export function pointInPolygon(x: number, y: number, poly: Polygon): boolean {
   let inside = false;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
     const [xi, yi] = poly[i]!;
@@ -184,7 +184,7 @@ function pointInPolygon(x: number, y: number, poly: Polygon): boolean {
  * other path in the same colour, so a floor built from several plates is
  * walkable across all of them.
  */
-function floorPlates(layers: TextureLayer[]): Polygon[] {
+export function floorPlates(layers: TextureLayer[]): Polygon[] {
   let best: { color: number; area: number } | null = null;
   const candidates: Array<{ color: number; poly: Polygon }> = [];
   for (const layer of layers) {
@@ -418,14 +418,6 @@ export function extractRoom(options: RoomExtractOptions): ExtractedRoom | null {
         if (!plates.some((poly) => pointInPolygon(x, y, poly))) tiles[cy * cols + cx] = 1;
       }
     }
-    // A spawn marker must always sit on walkable ground, whatever the art says.
-    for (const list of Object.values(spawns)) {
-      for (const point of list) {
-        const cx = Math.floor(point.x / ROOM_CELL);
-        const cy = Math.floor(point.y / ROOM_CELL);
-        if (cx >= 0 && cy >= 0 && cx < cols && cy < rows) tiles[cy * cols + cx] = 0;
-      }
-    }
   }
   for (const block of blocks) {
     // A few pixels of slack: sizes come out of the art at 63.999, and a handful
@@ -438,6 +430,16 @@ export function extractRoom(options: RoomExtractOptions): ExtractedRoom | null {
     const cy1 = Math.min(rows - 1, Math.ceil((block.y + block.h - slack) / ROOM_CELL) - 1);
     for (let cy = cy0; cy <= cy1; cy++) {
       for (let cx = cx0; cx <= cx1; cx++) tiles[cy * cols + cx] = 1;
+    }
+  }
+  // A marker must always sit on walkable ground, whatever the art or a
+  // block's footprint says: the original spawns there regardless, and a
+  // start point inside a wall would trap the player.
+  for (const list of Object.values(spawns)) {
+    for (const point of list) {
+      const cx = Math.floor(point.x / ROOM_CELL);
+      const cy = Math.floor(point.y / ROOM_CELL);
+      if (cx >= 0 && cy >= 0 && cx < cols && cy < rows) tiles[cy * cols + cx] = 0;
     }
   }
 
