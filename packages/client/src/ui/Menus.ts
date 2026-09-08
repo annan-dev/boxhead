@@ -379,8 +379,36 @@ const STYLE = `
   .row { display: flex; align-items: center; gap: 16px; margin-bottom: 14px; }
   .row label { color: var(--brass); min-width: 130px; font: 700 11px ${BODY}; text-transform: uppercase;
                letter-spacing: .16em; }
-  .row input[type=range] { flex: 1; max-width: 260px; accent-color: var(--red); }
-  .row input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--red); }
+  .row input[type=range] { flex: 1; max-width: 260px; }
+  /* Sliders and checkboxes in the menus' own metal: a dark inset track with a brass thumb, a bordered box with a red tick. */
+  .menu input[type=range] { -webkit-appearance: none; appearance: none; height: 22px; margin: 0; background: none; cursor: pointer; }
+  .menu input[type=range]:focus { outline: none; }
+  .menu input[type=range]::-webkit-slider-runnable-track { height: 6px; border: 1px solid #000; border-radius: 1px;
+         background: linear-gradient(90deg, var(--red-lo), var(--red) var(--fill, 0%), #0b0c0f var(--fill, 0%), #16171b); box-shadow: inset 0 1px 3px rgba(0,0,0,.9), 0 1px 0 rgba(255,255,255,.05); }
+  .menu input[type=range]::-moz-range-track { height: 6px; border: 1px solid #000; border-radius: 1px;
+         background: linear-gradient(#0b0c0f, #16171b); box-shadow: inset 0 1px 3px rgba(0,0,0,.9), 0 1px 0 rgba(255,255,255,.05); }
+  .menu input[type=range]::-moz-range-progress { height: 6px; background: linear-gradient(var(--red-lo), var(--red)); border-radius: 1px; }
+  .menu input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 14px; height: 20px; margin-top: -8px;
+         border: 1px solid #000; border-radius: 1px; background: linear-gradient(180deg, #e6cf94, var(--brass) 55%, #8a6f34);
+         box-shadow: inset 0 1px 0 rgba(255,255,255,.45), 0 2px 0 #000, 0 0 10px var(--brass-glow); transition: box-shadow .15s; }
+  .menu input[type=range]::-moz-range-thumb { width: 12px; height: 18px; border: 1px solid #000; border-radius: 1px;
+         background: linear-gradient(180deg, #e6cf94, var(--brass) 55%, #8a6f34);
+         box-shadow: inset 0 1px 0 rgba(255,255,255,.45), 0 2px 0 #000, 0 0 10px var(--brass-glow); transition: box-shadow .15s; }
+  .menu input[type=range]:hover::-webkit-slider-thumb, .menu input[type=range]:focus::-webkit-slider-thumb { box-shadow: inset 0 1px 0 rgba(255,255,255,.5), 0 2px 0 #000, 0 0 16px var(--brass); }
+  .menu input[type=range]:hover::-moz-range-thumb, .menu input[type=range]:focus::-moz-range-thumb { box-shadow: inset 0 1px 0 rgba(255,255,255,.5), 0 2px 0 #000, 0 0 16px var(--brass); }
+  .menu input[type=range]:disabled { cursor: not-allowed; opacity: .45; }
+  .menu input[type=checkbox] { -webkit-appearance: none; appearance: none; position: relative; width: 20px; height: 20px; margin: 0;
+         flex: none; cursor: pointer; border: 1px solid var(--brass-dim); border-radius: 1px;
+         background: linear-gradient(#1d1d21, #0f1013); box-shadow: inset 0 1px 0 rgba(255,255,255,.06), inset 0 0 0 1px #000, 0 2px 0 #000;
+         transition: border-color .15s, box-shadow .15s; }
+  .menu input[type=checkbox]:hover, .menu input[type=checkbox]:focus { outline: none; border-color: var(--brass);
+         box-shadow: inset 0 1px 0 rgba(255,255,255,.06), inset 0 0 0 1px #000, 0 2px 0 #000, 0 0 12px var(--brass-glow); }
+  .menu input[type=checkbox]::after { content: ''; position: absolute; left: 6px; top: 2px; width: 5px; height: 10px;
+         border: solid var(--red-hi); border-width: 0 3px 3px 0; transform: rotate(45deg) scale(0); opacity: 0;
+         filter: drop-shadow(0 0 4px rgba(224,17,31,.8)); transition: transform .12s, opacity .12s; }
+  .menu input[type=checkbox]:checked { border-color: var(--brass); }
+  .menu input[type=checkbox]:checked::after { transform: rotate(45deg) scale(1); opacity: 1; }
+  .menu input[type=checkbox]:disabled { cursor: not-allowed; opacity: .45; }
   .row select, .row input[type=text] { font: 600 14px ${BODY}; padding: 9px 12px; border: 1px solid #000;
                 background: linear-gradient(#1d1d21, #141417); color: var(--bone); border-radius: 2px;
                 box-shadow: inset 0 1px 0 rgba(255,255,255,.06), inset 0 0 0 1px rgba(201,167,90,.18), 0 3px 0 #000;
@@ -811,7 +839,20 @@ export class Menus {
     this.root.innerHTML = `${art}<div class="bg"></div><div class="embers">${embers}</div><div class="inner">${inner}</div>`;
     const canvas = this.root.querySelector<HTMLCanvasElement>('canvas.hero-art');
     if (canvas) this.titleArt.draw(canvas);
-    return this.root.querySelector<HTMLDivElement>('.inner')!;
+    const root = this.root.querySelector<HTMLDivElement>('.inner')!;
+    // Chrome cannot paint the filled part of a slider's track from CSS alone; the
+    // track reads its fill from a variable kept in step with the thumb.
+    const fill = (range: HTMLInputElement): void => {
+      const min = Number(range.min || 0);
+      const max = Number(range.max || 100);
+      const p = max > min ? ((Number(range.value) - min) / (max - min)) * 100 : 0;
+      range.style.setProperty('--fill', `${p}%`);
+    };
+    for (const range of root.querySelectorAll<HTMLInputElement>('input[type=range]')) {
+      fill(range);
+      range.addEventListener('input', () => fill(range));
+    }
+    return root;
   }
 
   private backButton(container: HTMLElement, to: Screen): void {
