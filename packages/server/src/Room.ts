@@ -432,6 +432,9 @@ export class Room {
       mapHash: this.mapHash(this.config.roomId),
       tick: this.tick,
       snapshot,
+      ...(snapshot && this.world
+        ? { messages: this.world.messages.map((m) => ({ seq: m.seq, text: m.text, kind: m.kind, life: m.life })) }
+        : {}),
     };
   }
 

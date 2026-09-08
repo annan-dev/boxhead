@@ -173,7 +173,15 @@ export class NetSession implements Session {
         this.phase = message.phase;
         this.stepMs = message.tickMs;
         this.adoptConfig(message.config, message.mapHash);
-        if (message.snapshot) this.beginMatch(message.snapshot);
+        if (message.snapshot) {
+          this.beginMatch(message.snapshot);
+          // What the room is still saying, so a strip that missed it catches up.
+          for (const m of message.messages ?? []) {
+            if (m.seq <= this.lastMessageSeq) continue;
+            this.lastMessageSeq = m.seq;
+            this.world.messages.push({ seq: m.seq, text: m.text, kind: m.kind, life: m.life });
+          }
+        }
         break;
       case 'lobby':
         this.phase = message.phase;
@@ -407,9 +415,9 @@ export class NetSession implements Session {
           present.playSound({ name: event.name, x: event.x, y: event.y, rate: event.rate, ownerId: event.ownerId });
           break;
         case 'popup':
+          this.eventsSeen.popups += 1;
           if (event.seq <= this.lastPopupSeq) break;
           this.lastPopupSeq = event.seq;
-          this.eventsSeen.popups += 1;
           this.world.popups.push({ seq: event.seq, x: event.x, y: event.y, text: event.text, life: 45, kind: event.kind });
           if (this.world.popups.length > 24) this.world.popups.shift();
           break;

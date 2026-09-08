@@ -65,6 +65,7 @@ const SCENARIOS = {
   pause: `run(0, 'beginner'); bot(600); menu('pause')`,
   'quick-pause': `run(0, 'beginner'); bot(600); quickPause()`,
   debrief: `run(0, 'nightmare'); bot(6000, { suicide: true }); await debrief()`,
+  latency: `run(0, 'beginner'); return latency()`,
   'low-health': `run(0, 'beginner'); bot(300); lowHealth(40)`,
   'low-health-shared': `shared('coop'); run(0, 'beginner'); bot(300); lowHealth(40, 1)`,
   'shared-coop': `shared('coop'); run(0, 'beginner'); await drive(['ArrowRight'], 60); bot(900); await drive(['ArrowLeft'], 40)`,
@@ -84,6 +85,32 @@ const HELPERS = `
     g.loop.callbacks.step();
   }
   function bot(ticks, opts) { g.debugBot(ticks, opts || {}); }
+  /**
+   * Input latency in simulation ticks: a key down to the first step the
+   * player moves, and a click to the first shot fired. Steps the loop by
+   * hand so the count is exact, then hands the numbers back as stats.
+   */
+  function latency() {
+    const p = g.world.players[0];
+    const step = () => g.loop.callbacks.step();
+    for (let i = 0; i < 5; i++) step();
+    const x0 = p.x;
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyD', key: 'd', bubbles: true }));
+    let moveTicks = -1;
+    for (let i = 1; i <= 10; i++) { step(); if (p.x !== x0) { moveTicks = i; break; } }
+    window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyD', key: 'd', bubbles: true }));
+    let fired = false;
+    const orig = g.audio.play.bind(g.audio);
+    g.audio.play = (name, ...rest) => { if (String(name).startsWith('Weapon.')) fired = true; return orig(name, ...rest); };
+    const canvas = document.getElementById('view');
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { button: 0, clientX: 400, clientY: 200, bubbles: true }));
+    let fireTicks = -1;
+    for (let i = 1; i <= 10; i++) { step(); if (fired) { fireTicks = i; break; } }
+    window.dispatchEvent(new PointerEvent('pointerup', { button: 0, bubbles: true }));
+    g.audio.play = orig;
+    g.loop.stop();
+    return { moveTicks, fireTicks };
+  }
   /** Drain a seat to a few points, and hold it there through the frame, so the heartbeat shows. */
   function lowHealth(life, seat) {
     const p = g.world.players[seat || 0];
@@ -190,7 +217,7 @@ async function main() {
       const started = Date.now();
       const stats = await evaluate(
         cdp,
-        `(async () => { ${HELPERS} ${script}; await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); return g.debugStats ? g.debugStats() : null; })()`,
+        `(async () => { ${HELPERS} const extra = await (async () => { ${script}; })(); await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); return { ...(g.debugStats ? g.debugStats() : {}), ...(extra ?? {}) }; })()`,
       );
       // Let the layout and any menu transition settle.
       await new Promise((r) => setTimeout(r, 400));
@@ -301,7 +328,7 @@ async function runCoop(host) {
     await new Promise((r) => setTimeout(r, 600));
 
     // The host opens the match on a practice level, so the option is proven online.
-    await evaluate(host, `__game.run.session.configure({ startLevel: 15 }); 'ok'`);
+    await evaluate(host, `__game.run.session.configure({ startLevel: 5 }); 'ok'`);
     await new Promise((r) => setTimeout(r, 300));
     const lobbyOverflow = await evaluate(host, `Math.max(0, (document.querySelector('.menu.on')?.scrollHeight ?? 0) - window.innerHeight)`);
     const lobbyShot = await host.send('Page.captureScreenshot', { format: 'png' });
@@ -328,19 +355,22 @@ async function runCoop(host) {
             await new Promise((r) => setTimeout(r, step.ms));
             for (const k of step.keys) up(k);
           }
-          return { ...__game.debugStats(), screen: __game.menus.screen, seat: __game.run.session.localPlayerIndex };
+          return { ...(__game.debugStats() ?? {}), screen: __game.menus.screen, seat: __game.run?.session.localPlayerIndex ?? -1 };
         })()`,
       );
+    // The guest walks off first, alone, so the host's screen has to point at a partner it cannot see.
     const [hostStats, guestStats] = await Promise.all([
-      drive(host, [{ keys: ['KeyD', 'Space'], ms: 1500 }, { keys: ['KeyW', 'Space'], ms: 1200 }, { keys: ['Space'], ms: 1500 }]),
-      drive(guest, [{ keys: ['KeyA', 'Space'], ms: 1500 }, { keys: ['KeyS', 'Space'], ms: 1200 }, { keys: ['Space'], ms: 1500 }]),
+      drive(host, [{ keys: ['KeyD'], ms: 2600 }, { keys: ['KeyW', 'Space'], ms: 1200 }, { keys: ['Space'], ms: 1500 }]),
+      drive(guest, [{ keys: ['KeyA', 'Space'], ms: 1400 }, { keys: ['KeyA', 'KeyS', 'Space'], ms: 1200 }, { keys: ['KeyS', 'Space'], ms: 1200 }, { keys: ['Space'], ms: 1500 }]),
     ]);
+    const partnerMarkerSeen = hostStats.partnerMarkers > 0 || guestStats.partnerMarkers > 0;
     // Pull the guest's plug: the client must come back to the same seat on
     // its own, with the server having held it, and keep playing.
     const reconnect = await evaluate(
       guest,
       `(async () => {
-        const session = __game.run.session;
+        const session = __game.run?.session;
+        if (!session) return { seatBefore: -1, seatAfter: -1, state: 'run ended before the reconnect', tickBefore: 0, tickAfter: 0 };
         const seat = session.localPlayerIndex;
         const tickBefore = session.world.tick;
         const net = session['net'];
@@ -354,18 +384,23 @@ async function runCoop(host) {
         return { seatBefore: seat, seatAfter: session.localPlayerIndex, state, tickBefore, tickAfter: session.world.tick };
       })()`,
     );
-    const hostNet = await evaluate(host, `__game.run.session.stats()`);
-    const guestNet = await evaluate(guest, `__game.run.session.stats()`);
+    const hostNet = await evaluate(host, `__game.run?.session.stats() ?? ['run ended']`);
+    const guestNet = await evaluate(guest, `__game.run?.session.stats() ?? ['run ended']`);
     for (const [cdp, name] of [[host, 'coop-host'], [guest, 'coop-guest']]) {
       const shot = await cdp.send('Page.captureScreenshot', { format: 'png' });
       writeFileSync(join(out, `${name}.png`), Buffer.from(shot.data, 'base64'));
     }
     const bothInWave = hostStats.screen === 'none' && guestStats.screen === 'none' && hostStats.tick > 0 && guestStats.tick > 0;
-    const match = await evaluate(host, `(() => { const c = __game.run.session.config; return c ? { difficulty: c.difficulty, mode: c.mode, startLevel: c.startLevel ?? 0 } : null; })()`);
+    const match = await evaluate(host, `(() => { const c = __game.run?.session.config; return c ? { difficulty: c.difficulty, mode: c.mode, startLevel: c.startLevel ?? 0 } : null; })()`);
     // Cosmetic events each client was sent during the drive: a re-forward shows here as a large number.
     const events = {
-      host: await evaluate(host, `__game.run.session.eventsSeen`),
-      guest: await evaluate(guest, `__game.run.session.eventsSeen`),
+      host: await evaluate(host, `(__game.run?.session.eventsSeen ?? null)`),
+      guest: await evaluate(guest, `(__game.run?.session.eventsSeen ?? null)`),
+    };
+    // After the guest's reconnect, the strips should say the same things.
+    const strips = {
+      host: await evaluate(host, `(__game.world?.messages.map((m) => m.text) ?? null)`),
+      guest: await evaluate(guest, `(__game.world?.messages.map((m) => m.text) ?? null)`),
     };
     const levels = {
       host: hostStats.level,
@@ -378,6 +413,8 @@ async function runCoop(host) {
       match,
       levels,
       events,
+      partnerMarkerSeen,
+      strips,
       lobbyOverflow,
       bothInWave,
       reconnect,

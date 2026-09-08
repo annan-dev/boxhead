@@ -1254,7 +1254,8 @@ export class Menus {
       </div>
       <div class="row">
         <label for="lead">Camera leads the aim</label>
-        <input type="checkbox" id="lead" ${this.save.cameraLead ? 'checked' : ''}>
+        <input type="range" id="lead" min="0" max="100" value="${Math.round(this.save.cameraLead * 100)}">
+        <span id="leadVal">${Math.round(this.save.cameraLead * 100)}%</span>
       </div>
       <div class="row">
         <label for="contrast">High contrast</label>
@@ -1412,8 +1413,10 @@ export class Menus {
       this.callbacks.onFeel();
     });
     const lead = inner.querySelector<HTMLInputElement>('#lead')!;
-    lead.addEventListener('change', () => {
-      this.save.setCameraLead(lead.checked);
+    const leadValue = inner.querySelector<HTMLSpanElement>('#leadVal')!;
+    lead.addEventListener('input', () => {
+      leadValue.textContent = `${lead.value}%`;
+      this.save.setCameraLead(Number(lead.value) / 100);
       this.callbacks.onFeel();
     });
     const contrast = inner.querySelector<HTMLInputElement>('#contrast')!;

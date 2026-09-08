@@ -139,6 +139,8 @@ export type ServerMessage =
       tick: number;
       /** Present when a match is running; null in the lobby. */
       snapshot: WorldSnapshot | null;
+      /** The banners still on screen, so a rejoining client's strip matches the room's. */
+      messages?: Array<{ seq: number; text: string; kind: Message['kind']; life: number }>;
     }
   | { type: 'reject'; reason: string }
   | { type: 'lobby'; phase: RoomPhase; config: MatchConfig; players: LobbyPlayer[] }

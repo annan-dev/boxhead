@@ -159,3 +159,19 @@ test('a quick death on an uncleared preset leads with practice; a long run does 
   assert.equal(SaveData.isQuickDeath({ practice: 'custom start at level 20', seconds: 5, levelsCleared: 0, level: 20 }), false);
   assert.equal(SaveData.isQuickDeath({ practice: null, seconds: 5, levelsCleared: 0, level: 1 }), false);
 });
+
+test("a veteran's quick death does not lead with practice; a newcomer's does", () => {
+  const death = { practice: null, seconds: 20, levelsCleared: 0, level: 20 };
+  assert.equal(SaveData.isQuickDeath(death, { bestLevel: 25 }, 20), false, 'cleared it before');
+  assert.equal(SaveData.isQuickDeath(death, { bestLevel: 21 }, 20), true, 'never cleared three waves here');
+  assert.equal(SaveData.isQuickDeath(death, null, 20), true, 'never played here');
+});
+
+test('the camera lead is a degree, and an old boolean save reads as all or nothing', () => {
+  const save = new SaveData();
+  assert.equal(save.cameraLead, 1);
+  save.setCameraLead(0.4);
+  assert.equal(save.cameraLead, 0.4);
+  save.setCameraLead(7);
+  assert.equal(save.cameraLead, 1);
+});

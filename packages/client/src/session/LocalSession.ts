@@ -79,7 +79,8 @@ export class LocalSession implements Session {
       ...(shared ? { tether: SHARED_SCREEN_TETHER } : {}),
     });
     if (options.snapshot) this.world.restore(options.snapshot);
-    else this.world.announceOpening();
+    // A fresh run above level 1, or one picked back up, is told what wave it is on.
+    this.world.announceOpening();
     // Game speed scales the wall time per step, as the original scaled its
     // logic rate; the simulation itself stays a fixed 50Hz.
     this.stepMs = tickMsFor(options.gameSpeed);

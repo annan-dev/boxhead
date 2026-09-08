@@ -126,7 +126,7 @@ export interface SaveState {
   /** The Options tab last opened. */
   optionsTab?: string | undefined;
   /** The camera leans toward the aim. */
-  cameraLead?: boolean | undefined;
+  cameraLead?: boolean | number | undefined;
   /** Markers outlined and the heartbeat framed, for players who need more than colour. */
   highContrast?: boolean | undefined;
 }
@@ -272,12 +272,15 @@ export class SaveData {
     return this.state.rumble ?? true;
   }
 
-  get cameraLead(): boolean {
-    return this.state.cameraLead ?? true;
+  /** How far the camera leans toward the aim, 0 to 1; an older save's boolean reads as all or nothing. */
+  get cameraLead(): number {
+    const value = this.state.cameraLead;
+    if (typeof value === 'number') return Math.max(0, Math.min(1, value));
+    return value === false ? 0 : 1;
   }
 
-  setCameraLead(value: boolean): void {
-    this.state.cameraLead = value;
+  setCameraLead(value: number): void {
+    this.state.cameraLead = Math.max(0, Math.min(1, value));
     this.persist();
   }
 

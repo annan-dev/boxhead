@@ -677,8 +677,8 @@ resize();
 const AIM_LEAD = 0.18;
 const AIM_LEAD_MAX = 64;
 
-function aimLead(me: Player): { x: number; y: number } {
-  if (!run) return { x: 0, y: 0 };
+function aimLead(me: Player, amount = 1): { x: number; y: number } {
+  if (!run || amount <= 0) return { x: 0, y: 0 };
   let dx: number;
   let dy: number;
   if (input.padOwnsAim) {
@@ -694,7 +694,7 @@ function aimLead(me: Player): { x: number; y: number } {
     dx *= AIM_LEAD_MAX / length;
     dy *= AIM_LEAD_MAX / length;
   }
-  return { x: dx, y: dy };
+  return { x: dx * amount, y: dy * amount };
 }
 
 /**
@@ -830,6 +830,8 @@ const loop = new Loop(
         lastBeat = beat;
         const me = world.players[run.session.localPlayerIndex];
         if (me && me.state === 'alive' && !world.gameOver) offerTips(world, me);
+        const second = run.session instanceof LocalSession && run.session.localSeats >= 2 ? world.players[1] : undefined;
+        if (second && second.state === 'alive' && !world.gameOver) offerTips(world, second);
         // Park every ten seconds as well, against a crash the page never sees coming.
         if (world.tick % 500 === 0) parkRun();
       }
@@ -852,7 +854,7 @@ const loop = new Loop(
       } else if (target) {
         // Lean the camera a little toward the aim, so the player sees more
         // of where they are shooting than of what is behind them.
-        const lead = save.cameraLead && target === local && local.state === 'alive' ? aimLead(local) : { x: 0, y: 0 };
+        const lead = target === local && local.state === 'alive' ? aimLead(local, save.cameraLead) : { x: 0, y: 0 };
         run.camera.follow(target.x + lead.x, target.y + lead.y);
       }
 
@@ -990,6 +992,7 @@ if (import.meta.env.DEV) {
       simMs: Number(stepAverage.toFixed(2)),
       drawMs: Number(loop.drawMs.toFixed(2)),
       poses: run.renderer.cachedPoses,
+      partnerMarkers: run.hud.partnerMarkers,
     };
   };
   (window as unknown as Record<string, unknown>).__game = {

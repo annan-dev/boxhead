@@ -52,6 +52,8 @@ export class Hud {
   localSeats = 1;
   /** Outlined markers and a framed heartbeat, so nothing rests on colour alone. */
   highContrast = false;
+  /** Partner rings drawn on the last frame, for the harness. */
+  partnerMarkers = 0;
   /** Where the weapon strips ended up this frame, so markers can keep clear. */
   private stripExtents: Array<{ left: number; right: number; top: number }> = [];
 
@@ -286,6 +288,7 @@ export class Hud {
       if (screen.x > -10 && screen.x < width + 10 && screen.y > -10 && screen.y < height + 10) continue;
       partners.push({ angle: Math.atan2(other.y - player.y, other.x - player.x), d: Math.hypot(other.x - player.x, other.y - player.y) });
     }
+    this.partnerMarkers = partners.length;
     if (!any && partners.length === 0) return;
 
     ctx.save();
