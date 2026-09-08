@@ -12,6 +12,7 @@
 import {
   ROOMS,
   TICK_MS,
+  WEAPONS,
   circleBlocked,
   emptyCommand,
   serverUrl,
@@ -19,6 +20,7 @@ import {
   type ExtractedRoom,
   type Player,
   type SoundEvent,
+  type WeaponId,
   type World,
   type WorldSnapshot,
 } from '@boxhead/shared';
@@ -530,6 +532,10 @@ function recordRun(): RunResult | null {
   const { world, room } = run.session;
   const local = run.session instanceof LocalSession ? run.session : null;
   const seconds = Math.round((world.tick * run.session.stepMs) / 1000);
+  const difficulty = local?.difficulty ?? save.difficulty;
+  const bestBefore = save.bestAt(room.id, difficulty).score;
+  const favourite = (Object.entries(world.stats.killsByWeapon) as Array<[WeaponId, number]>)
+    .sort((a, b) => b[1] - a[1])[0];
   const outcome = save.recordRun(
     room.id,
     room.index,
@@ -553,8 +559,12 @@ function recordRun(): RunResult | null {
     kills: world.kills,
     peakMultiplier: world.awardsBankedUpTo,
     seconds,
-    difficulty: local?.difficulty ?? save.difficulty,
+    difficulty,
     levelsCleared: world.level - (local?.startLevel ?? 1),
+    bestBefore,
+    accuracy: world.stats.shotsFired > 0 ? world.stats.shotsHit / world.stats.shotsFired : null,
+    longestStreak: world.stats.longestStreak,
+    favouriteWeapon: favourite ? WEAPONS[favourite[0]].name : null,
     isBest: outcome.isBest,
     unlockedNext: outcome.unlockedNext,
     practice: run.practiceReason,

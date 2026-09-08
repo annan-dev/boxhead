@@ -229,6 +229,18 @@ export interface PendingAffect {
   announce: boolean;
   /** Prevents a chain reaction from recursing without bound. */
   depth: number;
+  /** What set the blast off, for the run's statistics; null for a devil's fire or a room barrel. */
+  weapon: WeaponId | null;
+}
+
+/** Tallies kept for the debrief. They never influence the simulation. */
+export interface RunStats {
+  /** Trigger pulls that loosed a projectile (a shotgun blast counts once). */
+  shotsFired: number;
+  /** Shots that struck a creature at least once. */
+  shotsHit: number;
+  longestStreak: number;
+  killsByWeapon: Partial<Record<WeaponId, number>>;
 }
 
 /** Transient banner text, e.g. a level heading or an upgrade award. */

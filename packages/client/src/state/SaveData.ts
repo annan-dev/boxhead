@@ -41,6 +41,19 @@ export interface RoomRecord {
   peakMultiplier?: number;
   /** Longest run here, in whole seconds of play. */
   seconds?: number;
+  /** Best score and level per difficulty preset, so presets do not compete. */
+  byDifficulty?: Record<string, { score: number; level: number }>;
+}
+
+/** One finished run, for the history list. */
+export interface RunEntry {
+  roomId: string;
+  difficulty: string;
+  score: number;
+  level: number;
+  kills: number;
+  seconds: number;
+  at: number;
 }
 
 export interface SaveState {
@@ -79,6 +92,8 @@ export interface SaveState {
   tipsSeen?: string[] | undefined;
   /** Whether the one-time tips show at all. */
   tips?: boolean | undefined;
+  /** The last few runs, newest first. */
+  history?: RunEntry[] | undefined;
 }
 
 function defaults(): SaveState {
@@ -342,6 +357,21 @@ export class SaveData {
     return this.state.rooms[roomId] ?? { score: 0, level: 0, kills: 0, plays: 0 };
   }
 
+  /** The best on a room at one difficulty; older saves only know the overall best. */
+  bestAt(roomId: string, difficulty: string): { score: number; level: number } {
+    const record = this.recordFor(roomId);
+    const at = record.byDifficulty?.[difficulty];
+    if (at) return at;
+    if (record.difficulty === difficulty || (!record.difficulty && difficulty === 'beginner')) {
+      return { score: record.score, level: record.level };
+    }
+    return { score: 0, level: 0 };
+  }
+
+  get history(): RunEntry[] {
+    return this.state.history ?? [];
+  }
+
   isRoomUnlocked(index: number): boolean {
     return index < this.state.unlockedRooms;
   }
@@ -405,13 +435,35 @@ export class SaveData {
     // A practice run is never banked: no score, no unlock.
     if (!counts) return { isBest: false, unlockedNext: false };
     const previous = this.recordFor(roomId);
-    const isBest = result.score > previous.score;
+    const difficulty = result.difficulty ?? this.state.difficulty;
+    const previousAt = this.bestAt(roomId, difficulty);
+    // A best is beaten within its own preset; a Nightmare start does not
+    // erase a Beginner record, nor the other way round.
+    const isBest = result.score > previousAt.score;
+    const byDifficulty = { ...(previous.byDifficulty ?? {}) };
+    byDifficulty[difficulty] = {
+      score: Math.max(previousAt.score, result.score),
+      level: Math.max(previousAt.level, result.level),
+    };
+    this.state.history = [
+      {
+        roomId,
+        difficulty,
+        score: result.score,
+        level: result.level,
+        kills: result.kills,
+        seconds: result.seconds ?? 0,
+        at: Date.now(),
+      },
+      ...this.history,
+    ].slice(0, 10);
     this.state.rooms[roomId] = {
+      byDifficulty,
       score: Math.max(previous.score, result.score),
       level: Math.max(previous.level, result.level),
       kills: Math.max(previous.kills, result.kills),
       plays: previous.plays + 1,
-      difficulty: isBest ? (result.difficulty ?? this.state.difficulty) : previous.difficulty,
+      difficulty: result.score > previous.score ? difficulty : previous.difficulty,
       peakMultiplier: Math.max(previous.peakMultiplier ?? 0, result.peakMultiplier ?? 0),
       seconds: Math.max(previous.seconds ?? 0, result.seconds ?? 0),
     };

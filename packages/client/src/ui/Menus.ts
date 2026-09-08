@@ -66,6 +66,12 @@ export interface RunResult {
   difficulty: string;
   /** Waves cleared past the difficulty's starting level. */
   levelsCleared: number;
+  /** The best on this room at this difficulty before the run. */
+  bestBefore: number;
+  /** Shots that hit over shots fired, or null when nothing was fired. */
+  accuracy: number | null;
+  longestStreak: number;
+  favouriteWeapon: string | null;
   isBest: boolean;
   unlockedNext: boolean;
   /** Why the run did not count for high scores, or null when it did. */
@@ -354,6 +360,11 @@ const STYLE = `
                 box-shadow: inset 0 1px 0 rgba(255,255,255,.06), inset 0 0 0 1px var(--brass), 0 3px 0 #000, 0 0 14px var(--brass-glow); }
   .row select:disabled { opacity: .5; }
   .row .hint { color: var(--muted); font-size: 12px; }
+  .history { border-collapse: collapse; margin: 0 0 18px; font-size: 13px; color: var(--bone-dim); }
+  .history th { text-align: left; color: var(--brass); font: 700 10px "Segoe UI", system-ui, sans-serif;
+                text-transform: uppercase; letter-spacing: .16em; padding: 4px 18px 6px 0; }
+  .history td { padding: 4px 18px 4px 0; border-top: 1px solid rgba(255,255,255,.05); }
+  .history td b { color: var(--bone); }
   .keygrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0 30px; max-width: 700px; }
   .keygrid .row { margin-bottom: 10px; }
   .keygrid label { min-width: 140px; }
@@ -723,10 +734,12 @@ export class Menus {
       .map((room, index) => {
         const record = this.save.recordFor(room.id);
         const unlocked = this.save.isRoomUnlocked(index);
-        const best = record.score > 0
-          ? `best ${record.score.toLocaleString()} &middot; level ${record.level}` +
-            (record.difficulty && record.difficulty !== 'beginner' ? ` &middot; ${escapeHtml(this.difficultyName(record.difficulty))}` : '')
-          : 'not played';
+        const at = this.save.bestAt(room.id, this.save.difficulty);
+        const best = at.score > 0
+          ? `best ${at.score.toLocaleString()} &middot; level ${at.level}`
+          : record.score > 0
+            ? `no ${escapeHtml(this.difficultyName())} run yet &middot; best ${record.score.toLocaleString()} on ${escapeHtml(this.difficultyName(record.difficulty ?? 'beginner'))}`
+            : 'not played';
         const icon = this.screens?.levelIcons[room.id];
         return `
           <button class="card ${unlocked ? '' : 'locked'}" data-room="${room.id}"
@@ -1039,6 +1052,20 @@ export class Menus {
         <div>rooms unlocked <b>${Math.min(this.save.unlockedRooms, this.rooms.length)}</b> / ${this.rooms.length}</div>
         <div>combined best <b>${this.save.totalBest.toLocaleString()}</b></div>
       </div>
+      ${
+        this.save.history.length > 0
+          ? `<table class="history">
+              <tr><th>room</th><th>difficulty</th><th>score</th><th>level</th><th>kills</th><th>time</th></tr>
+              ${this.save.history
+                .map((entry) => {
+                  const room = this.rooms.find((r) => r.id === entry.roomId);
+                  return `<tr><td>${escapeHtml(room?.name ?? entry.roomId)}</td><td>${escapeHtml(this.difficultyName(entry.difficulty))}</td>
+                    <td><b>${entry.score.toLocaleString()}</b></td><td>${entry.level}</td><td>${entry.kills}</td><td>${formatSeconds(entry.seconds)}</td></tr>`;
+                })
+                .join('')}
+            </table>`
+          : ''
+      }
       <button class="btn danger" id="reset">Reset scores and unlocks</button>
       </div></div>
     `);
@@ -1332,24 +1359,32 @@ export class Menus {
       this.show('title');
       return;
     }
-    const record = this.save.recordFor(result.roomId);
+    const delta = result.score - result.bestBefore;
+    const verdict = result.practice
+      ? `<span class="badge strong">&#9888; practice run (${result.practice}) &mdash; not recorded</span>`
+      : result.bestBefore <= 0
+        ? 'first run here on this difficulty'
+        : result.isBest
+          ? `new personal best &middot; +${delta.toLocaleString()} over the old one`
+          : `${(-delta).toLocaleString()} short of your best ${result.bestBefore.toLocaleString()}`;
     const inner = this.shell(`
       <canvas class="watermark"></canvas>
       <div class="debrief">
         <h2>${result.roomName}</h2>
         <div class="sub" style="margin-bottom:0">final score</div>
         <div class="big">${result.score.toLocaleString()}</div>
-        <div class="best ${result.isBest ? 'new' : ''}">${
-          result.practice
-            ? `<span class="badge strong">&#9888; practice run (${result.practice}) &mdash; not recorded</span>`
-            : result.isBest ? 'new personal best' : `best ${record.score.toLocaleString()}`
-        }</div>
+        <div class="best ${result.isBest ? 'new' : ''}">${verdict}</div>
         <div class="stats">
           <div>level reached <b>${result.level}</b></div>
           <div>kills <b>${result.kills}</b></div>
           <div>peak multiplier <b>x${result.peakMultiplier}</b></div>
           <div>survived <b>${formatSeconds(result.seconds)}</b></div>
           <div>difficulty <b>${escapeHtml(this.difficultyName(result.difficulty))}</b></div>
+        </div>
+        <div class="stats">
+          ${result.accuracy !== null ? `<div>accuracy <b>${Math.round(result.accuracy * 100)}%</b></div>` : ''}
+          <div>longest streak <b>${result.longestStreak}</b></div>
+          ${result.favouriteWeapon ? `<div>most kills with <b>${escapeHtml(result.favouriteWeapon)}</b></div>` : ''}
         </div>
         <div class="stats">
           ${

@@ -81,6 +81,7 @@ import type {
   Placeable,
   Player,
   Popup,
+  RunStats,
   Shot,
   SoundEvent,
   WeaponSlot,
@@ -192,6 +193,9 @@ export class World {
   mode: GameMode = 'coop';
   /** Player index that won a deathmatch, or -1 while nobody has. */
   winnerIndex = -1;
+
+  /** Tallies for the debrief; read by the client, never by the simulation. */
+  readonly stats: RunStats = { shotsFired: 0, shotsHit: 0, longestStreak: 0, killsByWeapon: {} };
 
   /** Screen shake amplitude; draw-only, never fed back into the simulation. */
   shake = 0;
@@ -1064,6 +1068,7 @@ export class World {
         : 1;
       this.fireProjectiles(player, def, stats, power);
       this.shake += def.shake;
+      this.stats.shotsFired += 1;
     }
     player.fireCooldown = Math.max(1, stats.fireRate ?? def.fireRate);
     if (!infinite) slot.ammo -= 1;
@@ -1916,6 +1921,7 @@ export class World {
     this.explode(x, y, shot.splashRadius, shot.splashDamage, shot.ownerId, shot.cluster, 0, {
       extraBlasts: shot.extraBlasts,
       wallDamage: shot.wallDamage,
+      weapon: shot.kind === 'fireball' ? null : shot.weapon,
     });
   }
 
@@ -1993,6 +1999,8 @@ export class World {
     hits.sort((a, b) => a.distance - b.distance);
 
     const first = hits[0]!.thing;
+    // The first creature a player's shot touches makes it a hit, once.
+    if (!enemyProjectile && first.kind === 'enemy' && shot.hits.size === 0) this.stats.shotsHit += 1;
     shot.hits.add(first.id);
 
     if (enemyProjectile) {
@@ -2031,7 +2039,7 @@ export class World {
       return;
     }
     if (thing.kind === 'enemy') {
-      this.damageEnemy(thing, shot.damage, shot.angle, false, shot.ownerId);
+      this.damageEnemy(thing, shot.damage, shot.angle, false, shot.ownerId, shot.weapon);
       return;
     }
     // One bullet is enough: a barrel goes up on the first hit, as in the original.
@@ -2119,7 +2127,12 @@ export class World {
       placeable.ownerId,
       placeable.cluster,
       depth,
-      { extraBlasts: placeable.extraBlasts, wallDamage: placeable.splashDamage },
+      {
+        extraBlasts: placeable.extraBlasts,
+        wallDamage: placeable.splashDamage,
+        // A room's own barrel belongs to nobody's arsenal.
+        weapon: placeable.ownerId >= 0 ? placeable.type : null,
+      },
     );
   }
 
@@ -2135,7 +2148,7 @@ export class World {
     ownerId: number,
     cluster: boolean,
     depth: number,
-    extras: { extraBlasts?: number; wallDamage?: number; delay?: number } = {},
+    extras: { extraBlasts?: number; wallDamage?: number; delay?: number; weapon?: WeaponId | null } = {},
   ): void {
     if (depth > MAX_AFFECT_DEPTH) return;
     const delay = extras.delay ?? 0;
@@ -2151,6 +2164,7 @@ export class World {
       delay,
       announce: delay > 0,
       depth,
+      weapon: extras.weapon ?? null,
     });
     if (delay === 0) this.announceBlast(x, y, radius);
   }
@@ -2195,7 +2209,7 @@ export class World {
           if (d > affect.radius) continue;
           const falloff = fireball ? 1 : explosionFalloff(d / affect.radius);
           const angle = Math.atan2(enemy.y - affect.y, enemy.x - affect.x);
-          this.damageEnemy(enemy, affect.damage * falloff, angle, !fireball, affect.ownerId);
+          this.damageEnemy(enemy, affect.damage * falloff, angle, !fireball, affect.ownerId, affect.weapon);
           continue;
         }
         const player = this.playerById(id);
@@ -2325,6 +2339,7 @@ export class World {
         {
           wallDamage: affect.wallDamage,
           delay: this.rng.int(EXTRA_BLAST.minDelay, EXTRA_BLAST.maxDelay),
+          weapon: affect.weapon,
         },
       );
     }
@@ -2343,6 +2358,7 @@ export class World {
     angle: number,
     blast: boolean,
     ownerId: number,
+    weapon: WeaponId | null = null,
   ): void {
     if (enemy.state !== 'alive') return;
     const def = ENEMIES[enemy.defId];
@@ -2374,7 +2390,7 @@ export class World {
     this.spray(enemy.x, enemy.y, angle, def.bloodColor, 4, 8, 22, 2.5, 5);
     this.addEffect('gib', enemy.x, enemy.y, 14, 30);
     this.playSound('Creature.HitFloor', enemy.x, enemy.y, this.rng.range(0.9, 1.1));
-    this.registerKill(enemy, ownerId);
+    this.registerKill(enemy, ownerId, weapon);
   }
 
   /** `attackerId` is the player entity behind the hit, or -1 for the horde and the room. */
@@ -2473,9 +2489,10 @@ export class World {
     return tied ? -1 : best;
   }
 
-  private registerKill(enemy: Enemy, ownerId: number): void {
+  private registerKill(enemy: Enemy, ownerId: number, weapon: WeaponId | null = null): void {
     const def = ENEMIES[enemy.defId];
     this.kills += 1;
+    if (weapon) this.stats.killsByWeapon[weapon] = (this.stats.killsByWeapon[weapon] ?? 0) + 1;
 
     // Every kill lifts the multiplier one step and restarts its drain. Score
     // is the creature's worth times the multiplier at the moment it fell.
@@ -2486,6 +2503,7 @@ export class World {
     // The quick-kill streak runs on a much shorter window; every fifth kill
     // of a streak shakes a crate loose. Devils always drop one.
     this.streak += 1;
+    if (this.streak > this.stats.longestStreak) this.stats.longestStreak = this.streak;
     this.streakTicks = streakWindow(this.streak, this.speedFactor) + SCORING.countdownLagTicks;
     const drops = enemy.defId === 'devil' || this.streak % SCORING.pickupEveryStreakKills === 0;
 
@@ -2850,6 +2868,12 @@ export class World {
         navCursor: this.navCursor,
       },
       ids: { next: this.nextId, free: [...this.freeIds] },
+      stats: {
+        shotsFired: this.stats.shotsFired,
+        shotsHit: this.stats.shotsHit,
+        longestStreak: this.stats.longestStreak,
+        killsByWeapon: { ...this.stats.killsByWeapon },
+      },
       map: {
         revision: this.map.revision,
         integrityRevision: this.map.integrityRevision,
@@ -3016,6 +3040,12 @@ export class World {
     this.nextId = snapshot.ids.next;
     this.freeIds.length = 0;
     this.freeIds.push(...snapshot.ids.free);
+    if (snapshot.stats) {
+      this.stats.shotsFired = snapshot.stats.shotsFired;
+      this.stats.shotsHit = snapshot.stats.shotsHit;
+      this.stats.longestStreak = snapshot.stats.longestStreak;
+      this.stats.killsByWeapon = { ...snapshot.stats.killsByWeapon };
+    }
 
     if (snapshot.map.tiles && snapshot.map.integrity) {
       if (snapshot.map.tiles.length !== this.map.tiles.length) {

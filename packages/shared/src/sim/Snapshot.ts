@@ -13,7 +13,7 @@
 import type { WeaponId } from '../data/weapons.js';
 import type { UpgradeId } from '../data/upgrades.js';
 import type { EnemyId } from '../data/enemies.js';
-import type { CreatureState, EffectType, PendingAffect, PlaceableType, PickupType } from './types.js';
+import type { CreatureState, EffectType, PendingAffect, PlaceableType, PickupType, RunStats } from './types.js';
 import type { ShotKind } from '../data/weapons.js';
 import type { GameMode } from '../net/Protocol.js';
 
@@ -193,6 +193,8 @@ export interface WorldSnapshot {
   };
   /** Identity allocator, so restored ids stay unique. */
   ids: { next: number; free: number[] };
+  /** Debrief tallies; older snapshots leave them out. */
+  stats?: RunStats;
   /**
    * Tiles change when barricades are built or destroyed. A sender that knows
    * the receiver already holds this revision may omit the arrays; restoring
