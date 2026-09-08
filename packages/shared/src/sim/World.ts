@@ -225,6 +225,8 @@ export class World {
   private streakTicks = 0;
   private navCursor = 0;
   private waveGrace = 0;
+  /** Tick of the last multiplier-drop cue, so the sound is rate limited. */
+  private lastDropCueTick = -1000;
 
   private nextId = 0;
   private readonly freeIds: number[] = [];
@@ -2387,7 +2389,10 @@ export class World {
     this.hurt = Math.min(1, this.hurt + 0.35 + amount / 100);
     this.addDecal('blood', player.x, player.y, this.rng.range(5, 9), '#7a0d12');
 
-    if (player.life > 0) return;
+    if (player.life > 0) {
+      this.playSound('UI.Hurt', player.x, player.y, 1, player.id);
+      return;
+    }
     player.life = 0;
     player.state = 'dying';
     player.stateTicks = 0;
@@ -2644,6 +2649,13 @@ export class World {
       if (this.multiplierTicks <= 0) {
         this.multiplier -= 1;
         this.multiplierTicks = this.multiplierTicksFor(this.multiplier);
+        // A falling tone marks the drop, but a high multiplier steps down
+        // several times a second and would chatter, so one cue a second.
+        if (this.tick - this.lastDropCueTick >= 50) {
+          this.lastDropCueTick = this.tick;
+          const anchor = this.players.find((p) => p.state === 'alive') ?? this.players[0];
+          this.playSound('UI.Drop', anchor?.x ?? 0, anchor?.y ?? 0);
+        }
       }
     }
 
@@ -2829,6 +2841,7 @@ export class World {
         streak: this.streak,
         streakTicks: this.streakTicks,
         waveGrace: this.waveGrace,
+        lastDropCueTick: this.lastDropCueTick,
         navCursor: this.navCursor,
       },
       ids: { next: this.nextId, free: [...this.freeIds] },
@@ -2992,6 +3005,7 @@ export class World {
     this.streak = progress.streak;
     this.streakTicks = progress.streakTicks;
     this.waveGrace = progress.waveGrace;
+    this.lastDropCueTick = progress.lastDropCueTick ?? -1000;
     this.navCursor = progress.navCursor;
 
     this.nextId = snapshot.ids.next;

@@ -711,7 +711,7 @@ export class Menus {
             ${icon ? `<img class="art" src="${assetUrl(`bitmaps/${icon}`)}" alt="" hidden>` : ''}
             <div class="t">${index + 1}. ${room.name}</div>
             <div class="d">${room.width}&times;${room.height} &middot; ${room.blocks.length} blocks</div>
-            <div class="best">${unlocked ? best : `reach level ${UNLOCK_LEVEL} to unlock`}</div>
+            <div class="best">${unlocked ? best : `clear ${UNLOCK_CLEARS} waves in room ${index} to unlock`}</div>
           </button>`;
       })
       .join('');

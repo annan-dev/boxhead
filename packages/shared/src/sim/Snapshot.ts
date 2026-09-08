@@ -188,6 +188,8 @@ export interface WorldSnapshot {
     streakTicks: number;
     waveGrace: number;
     navCursor: number;
+    /** Tick of the last multiplier-drop sound; older snapshots leave it out. */
+    lastDropCueTick?: number;
   };
   /** Identity allocator, so restored ids stay unique. */
   ids: { next: number; free: number[] };

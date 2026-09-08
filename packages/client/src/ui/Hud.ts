@@ -178,8 +178,14 @@ export class Hud {
       const tx = cos > 0 ? (width - margin - at.x) / cos : cos < 0 ? (margin - at.x) / cos : Infinity;
       const ty = sin > 0 ? (height - margin - at.y) / sin : sin < 0 ? (margin - at.y) / sin : Infinity;
       const t = Math.max(0, Math.min(tx, ty));
-      const x = at.x + cos * t;
-      const y = at.y + sin * t;
+      let x = at.x + cos * t;
+      let y = at.y + sin * t;
+      // Keep out of the score panel (top right) and the weapon strip (bottom
+      // centre): a marker that lands in either is pushed to the panel's edge.
+      if (x > width - 240 * s && y < 84 * s) y = 84 * s;
+      if (Math.abs(x - width / 2) < 300 * s && y > height - 66 * s) y = height - 66 * s;
+      x = Math.max(margin, Math.min(width - margin, x));
+      y = Math.max(margin, Math.min(height - margin, y));
       // Close threats draw bigger and brighter; far ones fade toward the edge.
       const near = Math.max(0, Math.min(1, 1 - (marker.d - 200) / 900));
       const size = (7 + near * 6) * s;

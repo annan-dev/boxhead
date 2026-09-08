@@ -252,6 +252,16 @@ function synthesize(context: AudioContext, destination: AudioNode, name: string)
     case 'UI.Empty':
       tone('square', 1400, 0, 0.03, 0.06, 500);
       break;
+    case 'UI.Hurt':
+      // A short grunt: a low tone that drops, with breath on top of it.
+      tone('triangle', 180, 0, 0.14, 0.16, 90);
+      thump(0, 0.1, 0.12, 200, 70);
+      break;
+    case 'UI.Drop':
+      // A falling minor third, quiet, so a lapse is felt rather than nagged.
+      tone('triangle', 440, 0, 0.09, 0.05);
+      tone('triangle', 370, 0.09, 0.16, 0.05, 330);
+      break;
     default:
       break;
   }
