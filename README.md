@@ -16,7 +16,9 @@ it in, the way a Minecraft server works. See [Multiplayer](#multiplayer).
 
 **Controls** — `WASD` move, mouse aim, click or `space` fire, `1`-`0` weapons,
 `Q`/`E` or mouse wheel cycle, `P` quick pause, `Esc` pause menu (resume, restart, options,
-quit), `R` restart while paused, `M` mute, `F3` stats.
+quit), `R` restart while paused, `M` mute, `F3` stats. Every key but the weapon numbers can be
+rebound in Options, and a standard gamepad works everywhere: sticks move and aim, trigger
+fires, bumpers cycle, Start pauses, d-pad and A drive the menus.
 
 ## Assets
 

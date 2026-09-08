@@ -50,15 +50,51 @@ function axis(pad: Gamepad, index: number): number {
   return Math.abs(value) < STICK_DEADZONE ? 0 : value;
 }
 
-const MOVE_KEYS: Record<string, [number, number]> = {
-  KeyW: [0, -1],
-  ArrowUp: [0, -1],
-  KeyS: [0, 1],
-  ArrowDown: [0, 1],
-  KeyA: [-1, 0],
-  ArrowLeft: [-1, 0],
-  KeyD: [1, 0],
-  ArrowRight: [1, 0],
+/** The actions a player may rebind; weapon numbers stay on their keys. */
+export type BindableAction = 'up' | 'down' | 'left' | 'right' | 'fire' | 'next' | 'prev' | 'pause';
+export type Bindings = Record<BindableAction, string[]>;
+
+export const DEFAULT_BINDINGS: Bindings = {
+  up: ['KeyW', 'ArrowUp'],
+  down: ['KeyS', 'ArrowDown'],
+  left: ['KeyA', 'ArrowLeft'],
+  right: ['KeyD', 'ArrowRight'],
+  fire: ['Space'],
+  next: ['KeyE', 'BracketRight'],
+  prev: ['KeyQ', 'BracketLeft'],
+  pause: ['KeyP'],
+};
+
+export const ACTION_LABELS: Record<BindableAction, string> = {
+  up: 'Move up',
+  down: 'Move down',
+  left: 'Move left',
+  right: 'Move right',
+  fire: 'Fire',
+  next: 'Next weapon',
+  prev: 'Previous weapon',
+  pause: 'Quick pause',
+};
+
+/** A key code as a player would read it on the cap. */
+export function keyName(code: string): string {
+  if (code.startsWith('Key')) return code.slice(3);
+  if (code.startsWith('Digit')) return code.slice(5);
+  const names: Record<string, string> = {
+    ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→', Space: 'Space',
+    BracketLeft: '[', BracketRight: ']', ShiftLeft: 'L Shift', ShiftRight: 'R Shift',
+    ControlLeft: 'L Ctrl', ControlRight: 'R Ctrl', AltLeft: 'L Alt', AltRight: 'R Alt',
+    Enter: 'Enter', Tab: 'Tab', Comma: ',', Period: '.', Slash: '/', Semicolon: ';',
+    Quote: "'", Backslash: '\\', Minus: '-', Equal: '=', Backquote: '`',
+  };
+  return names[code] ?? code.replace(/^Numpad/, 'Num ');
+}
+
+const MOVE_DIRECTIONS: Record<'up' | 'down' | 'left' | 'right', [number, number]> = {
+  up: [0, -1],
+  down: [0, 1],
+  left: [-1, 0],
+  right: [1, 0],
 };
 
 const SLOT_KEYS: Record<string, number> = {
@@ -99,6 +135,28 @@ export class Input {
   private padFire = false;
   /** Whether a gamepad has been seen at all, for the hint text. */
   padSeen = false;
+  private bindings: Bindings = DEFAULT_BINDINGS;
+  /** Key code to action, rebuilt whenever the bindings change. */
+  private keyToAction = new Map<string, BindableAction>();
+
+  /** Install a binding set; unknown or empty actions fall back to the defaults. */
+  setBindings(bindings: Partial<Bindings>): void {
+    const merged = { ...DEFAULT_BINDINGS } as Bindings;
+    for (const action of Object.keys(DEFAULT_BINDINGS) as BindableAction[]) {
+      const keys = bindings[action];
+      if (keys && keys.length > 0) merged[action] = keys;
+    }
+    this.bindings = merged;
+    this.keyToAction.clear();
+    for (const action of Object.keys(merged) as BindableAction[]) {
+      for (const code of merged[action]) this.keyToAction.set(code, action);
+    }
+  }
+
+  /** The move keys currently bound to an action, for the hint text. */
+  keysFor(action: BindableAction): string[] {
+    return this.bindings[action];
+  }
 
   /** True while the pad, not the mouse, owns the aim. */
   get padOwnsAim(): boolean {
@@ -121,6 +179,7 @@ export class Input {
   }
 
   constructor(private readonly target: HTMLCanvasElement) {
+    this.setBindings({});
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
     window.addEventListener('blur', this.onBlur);
@@ -152,16 +211,15 @@ export class Input {
   private readonly onKeyDown = (event: KeyboardEvent): void => {
     if (event.repeat || !this.enabled) return;
     // The game owns these keys; let everything else through.
-    if (event.code in MOVE_KEYS || event.code in SLOT_KEYS || event.code === 'Space') {
-      event.preventDefault();
-    }
+    const action = this.keyToAction.get(event.code);
+    if (action || event.code in SLOT_KEYS) event.preventDefault();
     this.down.add(event.code);
 
     const slot = SLOT_KEYS[event.code];
     if (slot !== undefined) this.pendingSlot = slot;
-    if (event.code === 'KeyE' || event.code === 'BracketRight') this.pendingNext = true;
-    if (event.code === 'KeyQ' || event.code === 'BracketLeft') this.pendingPrev = true;
-    if (event.code === 'KeyP') this.pausePressed = true;
+    if (action === 'next') this.pendingNext = true;
+    if (action === 'prev') this.pendingPrev = true;
+    if (action === 'pause') this.pausePressed = true;
   };
 
   /** Hand the keyboard to the menus, or take it back for play. */
@@ -307,18 +365,21 @@ export class Input {
    */
   buildCommand(aimX: number, aimY: number): InputCommand {
     const command = emptyCommand();
-    for (const [code, [dx, dy]] of Object.entries(MOVE_KEYS)) {
-      if (!this.down.has(code)) continue;
+    for (const direction of Object.keys(MOVE_DIRECTIONS) as Array<keyof typeof MOVE_DIRECTIONS>) {
+      if (!this.bindings[direction].some((code) => this.down.has(code))) continue;
+      const [dx, dy] = MOVE_DIRECTIONS[direction];
       command.moveX += dx;
       command.moveY += dy;
     }
+    command.moveX = Math.max(-1, Math.min(1, command.moveX));
+    command.moveY = Math.max(-1, Math.min(1, command.moveY));
     if (command.moveX === 0 && command.moveY === 0) {
       command.moveX = this.padMoveX;
       command.moveY = this.padMoveY;
     }
     command.aimX = aimX;
     command.aimY = aimY;
-    command.fire = this.pointerDown || this.down.has('Space') || this.padFire;
+    command.fire = this.pointerDown || this.bindings.fire.some((code) => this.down.has(code)) || this.padFire;
     command.weaponSlot = this.pendingSlot;
     command.nextWeapon = this.pendingNext;
     command.prevWeapon = this.pendingPrev;

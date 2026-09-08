@@ -21,7 +21,7 @@ import {
   type World,
 } from '@boxhead/shared';
 import { Loop } from './loop/Loop.js';
-import { Input } from './input/Input.js';
+import { Input, keyName, type Bindings } from './input/Input.js';
 import { Camera } from './render/Camera.js';
 import { GameRenderer } from './render/GameRenderer.js';
 import { Hud } from './ui/Hud.js';
@@ -111,6 +111,7 @@ if (import.meta.env.DEV && window.location.hash === '#gallery') {
 const rooms: ExtractedRoom[] = pack.rooms.length > 0 ? pack.rooms : ROOMS;
 const save = new SaveData();
 const input = new Input(canvas);
+input.setBindings(save.keys as Partial<Bindings>);
 
 // The original's own menu pictures: logo, level icons, portraits. Optional;
 // the menus draw their own stand-ins when the manifest is absent.
@@ -214,6 +215,7 @@ const menus = new Menus(app, pack, rooms, save, screens, {
     if (audio.muted !== value) audio.toggleMute();
   },
   onFeel: () => applyFeelSettings(),
+  onKeys: () => input.setBindings(save.keys as Partial<Bindings>),
   // The menus own the keyboard while they are up; play keys must not leak
   // through, and nothing pressed there may fire once play resumes.
   onScreen: (screen) => {
@@ -311,9 +313,11 @@ function startRun(roomId: string, characterId: string): void {
 }
 
 function controlsHint(): string {
-  return input.padSeen
-    ? '<b>stick</b> move &nbsp; <b>right stick</b> aim &nbsp; <b>trigger</b> fire &nbsp; <b>start</b> pause'
-    : '<b>WASD</b> move &nbsp; <b>mouse</b> aim &nbsp; <b>click</b> fire &nbsp; <b>Esc</b> menu';
+  if (input.padSeen) {
+    return '<b>stick</b> move &nbsp; <b>right stick</b> aim &nbsp; <b>trigger</b> fire &nbsp; <b>start</b> pause';
+  }
+  const move = (['up', 'left', 'down', 'right'] as const).map((a) => keyName(input.keysFor(a)[0] ?? '')).join('');
+  return `<b>${move}</b> move &nbsp; <b>mouse</b> aim &nbsp; <b>click</b> fire &nbsp; <b>Esc</b> menu`;
 }
 
 function connect(address: string, name: string, characterId: string): void {

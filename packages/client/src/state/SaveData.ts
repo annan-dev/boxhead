@@ -55,6 +55,8 @@ export interface SaveState {
   hudScale?: number | undefined;
   /** Gamepad rumble. */
   rumble?: boolean | undefined;
+  /** Key bindings by action; absent actions use the defaults. */
+  keys?: Record<string, string[]> | undefined;
 }
 
 function defaults(): SaveState {
@@ -198,6 +200,25 @@ export class SaveData {
     return this.state.rumble ?? true;
   }
 
+  get keys(): Record<string, string[]> {
+    return this.state.keys ?? {};
+  }
+
+  /** Bind an action to one key, replacing whatever it had. */
+  setKey(action: string, code: string): void {
+    const keys = { ...this.keys };
+    // A key can serve one action only; take it from wherever it was.
+    for (const other of Object.keys(keys)) keys[other] = keys[other]!.filter((c) => c !== code);
+    keys[action] = [code];
+    this.state.keys = keys;
+    this.persist();
+  }
+
+  resetKeys(): void {
+    delete this.state.keys;
+    this.persist();
+  }
+
   setRumble(value: boolean): void {
     this.state.rumble = value;
     this.persist();
@@ -333,8 +354,8 @@ export class SaveData {
 
   /** Clear every stored score and unlock, for the options screen. */
   reset(): void {
-    const { characterId, volume, music, muted, difficulty, gameSpeed, devils, shake, flashes, hudScale, rumble } = this.state;
-    this.state = { ...defaults(), characterId, volume, music, muted, difficulty, gameSpeed, devils, shake, flashes, hudScale, rumble };
+    const { characterId, volume, music, muted, difficulty, gameSpeed, devils, shake, flashes, hudScale, rumble, keys } = this.state;
+    this.state = { ...defaults(), characterId, volume, music, muted, difficulty, gameSpeed, devils, shake, flashes, hudScale, rumble, keys };
     this.persist();
   }
 }

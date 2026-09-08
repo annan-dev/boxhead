@@ -26,7 +26,7 @@ import { UNLOCK_CLEARS, UNLOCK_LEVEL } from '../state/SaveData.js';
 import { assetUrl } from '../assets/AssetSource.js';
 import { CHARACTER_PALETTES } from '../render/HeadArt.js';
 import { TitleArt } from './TitleArt.js';
-import { firstGamepad } from '../input/Input.js';
+import { ACTION_LABELS, DEFAULT_BINDINGS, firstGamepad, keyName, type BindableAction } from '../input/Input.js';
 
 export type Screen =
   | 'title'
@@ -108,6 +108,8 @@ export interface MenuCallbacks {
   onMuted: (value: boolean) => void;
   /** Shake, flashes, HUD size or rumble changed; the game re-reads the save. */
   onFeel: () => void;
+  /** Key bindings changed; the game re-reads the save. */
+  onKeys: () => void;
   /** Fired whenever a screen opens or the menus close. */
   onScreen: (screen: Screen) => void;
   /** Join a server; `address` is whatever the player typed. */
@@ -350,6 +352,15 @@ const STYLE = `
                 box-shadow: inset 0 1px 0 rgba(255,255,255,.06), inset 0 0 0 1px var(--brass), 0 3px 0 #000, 0 0 14px var(--brass-glow); }
   .row select:disabled { opacity: .5; }
   .row .hint { color: var(--muted); font-size: 12px; }
+  .keygrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0 30px; max-width: 700px; }
+  .keygrid .row { margin-bottom: 10px; }
+  .keygrid label { min-width: 140px; }
+  button.key { font: 700 12px "Segoe UI", system-ui, sans-serif; letter-spacing: .1em; text-transform: uppercase;
+               padding: 7px 14px; min-width: 96px; border: 1px solid var(--brass-dim); color: var(--bone);
+               background: linear-gradient(#1d1d21, #141417); cursor: pointer; box-shadow: 0 3px 0 #000; }
+  button.key:hover, button.key:focus { outline: none; border-color: var(--brass); box-shadow: 0 3px 0 #000, 0 0 14px var(--brass-glow); }
+  button.key.listening { color: #ff8791; border-color: rgba(224,17,31,.7); animation: blink 1s steps(2) infinite; }
+  @keyframes blink { to { opacity: .55; } }
   .row span, .row p { color: var(--bone-dim); }
   .note { background: rgba(201,167,90,.09); border: 1px solid var(--brass-dim); color: #e6cf94;
           padding: 10px 14px; margin: 0 0 16px; max-width: 560px; font-size: 13px; line-height: 1.5; }
@@ -994,6 +1005,18 @@ export class Menus {
         <label for="rumble">Gamepad rumble</label>
         <input type="checkbox" id="rumble" ${this.save.rumble ? 'checked' : ''}>
       </div>
+      <h2 style="margin-top:30px">Controls</h2>
+      <p class="hint" style="margin:0 0 12px">Click a key to change it, then press the new one. Weapons stay on 1 to 0.</p>
+      <div class="keygrid">
+        ${(Object.keys(DEFAULT_BINDINGS) as BindableAction[])
+          .map((action) => {
+            const keys = this.save.keys[action] ?? DEFAULT_BINDINGS[action];
+            return `<div class="row"><label>${ACTION_LABELS[action]}</label>
+              <button class="key" data-action="${action}">${keys.map((k) => escapeHtml(keyName(k))).join(' / ')}</button></div>`;
+          })
+          .join('')}
+      </div>
+      <button class="btn secondary" id="resetKeys" style="max-width:280px">Default keys</button>
       <h2 style="margin-top:30px">Progress</h2>
       <div class="stats">
         <div>rooms unlocked <b>${Math.min(this.save.unlockedRooms, this.rooms.length)}</b> / ${this.rooms.length}</div>
@@ -1066,6 +1089,29 @@ export class Menus {
     devils.addEventListener('change', () => {
       this.save.setDevils(devils.checked);
       devilsBadge.hidden = devils.checked;
+    });
+
+    for (const button of inner.querySelectorAll<HTMLButtonElement>('button.key')) {
+      button.addEventListener('click', () => {
+        const action = button.dataset.action!;
+        button.textContent = 'press a key';
+        button.classList.add('listening');
+        const capture = (event: KeyboardEvent): void => {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          window.removeEventListener('keydown', capture, true);
+          if (event.code !== 'Escape') this.save.setKey(action, event.code);
+          this.callbacks.onKeys();
+          this.renderOptions();
+          inner.querySelector<HTMLButtonElement>(`button.key[data-action="${action}"]`)?.focus();
+        };
+        window.addEventListener('keydown', capture, true);
+      });
+    }
+    inner.querySelector<HTMLButtonElement>('#resetKeys')!.addEventListener('click', () => {
+      this.save.resetKeys();
+      this.callbacks.onKeys();
+      this.renderOptions();
     });
 
     inner.querySelector<HTMLButtonElement>('#reset')!.addEventListener('click', () => {
