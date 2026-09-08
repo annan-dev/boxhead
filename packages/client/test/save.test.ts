@@ -39,3 +39,21 @@ test('a practice run records nothing', () => {
   assert.equal(save.recordFor('r1').score, 0);
   assert.equal(save.history.length, 0);
 });
+
+test('a progress code carries bests and unlocks and merges upward', () => {
+  const source = new SaveData();
+  source.recordRun('r1', 0, { score: 1000, level: 4, kills: 10, startLevel: 1, difficulty: 'beginner' }, true, 18);
+  source.recordRun('r2', 1, { score: 300, level: 2, kills: 3, startLevel: 1, difficulty: 'beginner' }, true, 18);
+  const code = source.exportCode();
+  assert.ok(code.startsWith('BH1.'));
+
+  const target = new SaveData();
+  target.recordRun('r1', 0, { score: 1500, level: 3, kills: 4, startLevel: 1, difficulty: 'beginner' }, true, 18);
+  assert.equal(target.importCode('nonsense'), false);
+  assert.equal(target.importCode(code), true);
+  assert.equal(target.recordFor('r1').score, 1500, 'the higher best stays');
+  assert.equal(target.recordFor('r1').level, 4, 'the higher level arrives');
+  assert.equal(target.recordFor('r2').score, 300, 'a room not played here arrives');
+  assert.equal(target.isRoomUnlocked(1), true, 'the unlock arrives');
+  assert.equal(target.history.length, 3);
+});

@@ -1100,6 +1100,21 @@ export class Menus {
             </table>`
           : ''
       }
+      <div class="row" style="align-items:flex-start">
+        <label for="progressCode" style="padding-top:9px">Progress code</label>
+        <div style="flex:1;max-width:560px">
+          <p class="hint" style="margin:6px 0 8px">Your scores, unlocks and history as text: copy it into the downloaded
+            <code>boxhead.html</code> or another browser, or keep it safe. Pasting a code merges it with what is here.</p>
+          <textarea id="progressCode" rows="2" spellcheck="false" style="width:100%;box-sizing:border-box;font:12px ui-monospace,Consolas,monospace;
+            background:linear-gradient(#1d1d21,#141417);color:var(--bone);border:1px solid #000;padding:8px;resize:vertical;
+            box-shadow:inset 0 1px 0 rgba(255,255,255,.06),inset 0 0 0 1px rgba(201,167,90,.18)">${escapeHtml(this.save.exportCode())}</textarea>
+          <div style="display:flex;gap:10px;margin-top:8px;align-items:center">
+            <button class="key" id="copyCode" type="button">copy</button>
+            <button class="key" id="importCode" type="button">import what is pasted</button>
+            <span id="codeNote" class="hint"></span>
+          </div>
+        </div>
+      </div>
       <button class="btn danger" id="reset">Reset scores and unlocks</button>
       </div></div>
     `);
@@ -1222,6 +1237,26 @@ export class Menus {
       this.save.resetKeys();
       this.callbacks.onKeys();
       this.renderOptions();
+    });
+
+    const codeField = inner.querySelector<HTMLTextAreaElement>('#progressCode')!;
+    const codeNote = inner.querySelector<HTMLSpanElement>('#codeNote')!;
+    inner.querySelector<HTMLButtonElement>('#copyCode')!.addEventListener('click', () => {
+      codeField.value = this.save.exportCode();
+      codeField.select();
+      const done = (): void => {
+        codeNote.textContent = 'copied';
+      };
+      if (navigator.clipboard?.writeText) navigator.clipboard.writeText(codeField.value).then(done, done);
+      else done();
+    });
+    inner.querySelector<HTMLButtonElement>('#importCode')!.addEventListener('click', () => {
+      if (this.save.importCode(codeField.value)) {
+        codeNote.textContent = 'merged';
+        this.renderOptions();
+      } else {
+        codeNote.textContent = 'that is not a progress code';
+      }
     });
 
     inner.querySelector<HTMLButtonElement>('#reset')!.addEventListener('click', () => {

@@ -511,6 +511,72 @@ export class SaveData {
     return { isBest, unlockedNext };
   }
 
+  /**
+   * The progress as a code the player can carry to another copy of the game:
+   * the Pages site and the downloaded file keep separate storage, and a
+   * browser's site data can be cleared. Scores, unlocks and history travel;
+   * settings stay where they are.
+   */
+  exportCode(): string {
+    const { rooms, unlockedRooms, history, tipsSeen } = this.state;
+    const json = JSON.stringify({ v: 1, rooms, unlockedRooms, history, tipsSeen });
+    return `BH1.${btoa(unescape(encodeURIComponent(json)))}`;
+  }
+
+  /**
+   * Take a code in. Bests merge upward, unlocks take the higher, history is
+   * combined; nothing already earned is lost. Returns false for a bad code.
+   */
+  importCode(code: string): boolean {
+    const trimmed = code.trim();
+    if (!trimmed.startsWith('BH1.')) return false;
+    let parsed: Partial<Pick<SaveState, 'rooms' | 'unlockedRooms' | 'history' | 'tipsSeen'>> & { v?: number };
+    try {
+      parsed = JSON.parse(decodeURIComponent(escape(atob(trimmed.slice(4)))));
+    } catch {
+      return false;
+    }
+    if (parsed.v !== 1 || typeof parsed.rooms !== 'object') return false;
+    const rooms = { ...this.state.rooms };
+    for (const [id, record] of Object.entries(parsed.rooms ?? {})) {
+      const mine = rooms[id];
+      if (!mine) {
+        rooms[id] = record;
+        continue;
+      }
+      const byDifficulty = { ...(mine.byDifficulty ?? {}) };
+      for (const [difficulty, best] of Object.entries(record.byDifficulty ?? {})) {
+        const have = byDifficulty[difficulty];
+        byDifficulty[difficulty] = {
+          score: Math.max(have?.score ?? 0, best.score),
+          level: Math.max(have?.level ?? 0, best.level),
+        };
+      }
+      rooms[id] = {
+        score: Math.max(mine.score, record.score),
+        level: Math.max(mine.level, record.level),
+        kills: Math.max(mine.kills, record.kills),
+        plays: mine.plays + record.plays,
+        difficulty: record.score > mine.score ? record.difficulty : mine.difficulty,
+        peakMultiplier: Math.max(mine.peakMultiplier ?? 0, record.peakMultiplier ?? 0),
+        seconds: Math.max(mine.seconds ?? 0, record.seconds ?? 0),
+        byDifficulty,
+      };
+    }
+    this.state.rooms = rooms;
+    this.state.unlockedRooms = Math.max(this.state.unlockedRooms, Number(parsed.unlockedRooms) || 1);
+    const history = [...(parsed.history ?? []), ...this.history]
+      .filter((entry) => entry && typeof entry.at === 'number')
+      .sort((a, b) => b.at - a.at)
+      .slice(0, 10);
+    this.state.history = history;
+    if (Array.isArray(parsed.tipsSeen)) {
+      this.state.tipsSeen = [...new Set([...(this.state.tipsSeen ?? []), ...parsed.tipsSeen])];
+    }
+    this.persist();
+    return true;
+  }
+
   /** Clear every stored score and unlock, for the options screen. */
   reset(): void {
     const { characterId, volume, music, muted, difficulty, gameSpeed, devils, shake, flashes, hudScale, rumble, keys } = this.state;
