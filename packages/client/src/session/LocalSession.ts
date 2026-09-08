@@ -7,6 +7,7 @@ import {
   World,
   tickMsFor,
   type ExtractedRoom,
+  type GameMode,
   type InputCommand,
   type WorldSnapshot,
 } from '@boxhead/shared';
@@ -24,6 +25,8 @@ export interface LocalOptions {
   snapshot?: WorldSnapshot;
   /** A second player on this screen, with their character. */
   secondCharacterId?: string;
+  /** Co-op waves or head-to-head deathmatch; only with a second seat. */
+  mode?: GameMode;
 }
 
 /** How far apart two players sharing one screen may get, in world pixels. */
@@ -34,7 +37,9 @@ export class LocalSession implements Session {
   readonly room: ExtractedRoom;
   readonly localPlayerIndex = 0;
   readonly stepMs: number;
-  readonly recordsScores = true;
+  /** Only a co-op run leaves a score behind; a deathmatch leaves a winner. */
+  readonly recordsScores: boolean;
+  readonly mode: GameMode;
   /** The preset the run opened on, for the record it leaves behind. */
   readonly difficulty: string;
   readonly startLevel: number;
@@ -49,6 +54,8 @@ export class LocalSession implements Session {
     const speed = GAME_SPEEDS.find((s) => s.id === options.gameSpeed) ?? GAME_SPEEDS[1]!;
     const shared = options.secondCharacterId !== undefined;
     this.localSeats = shared ? 2 : 1;
+    this.mode = shared && options.mode === 'deathmatch' ? 'deathmatch' : 'coop';
+    this.recordsScores = this.mode === 'coop';
     this.world = new World({
       room: options.room,
       seed: Date.now() & 0xffff,
@@ -58,6 +65,7 @@ export class LocalSession implements Session {
       startMultiplier: difficulty.startMultiplier,
       devils: options.devils,
       speedFactor: speed.factor,
+      mode: this.mode,
       ...(shared ? { tether: SHARED_SCREEN_TETHER } : {}),
     });
     if (options.snapshot) this.world.restore(options.snapshot);

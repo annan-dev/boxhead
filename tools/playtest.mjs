@@ -31,7 +31,9 @@ const height = Number(opt('height', 720));
 const fairnessRuns = Number(opt('fairness', 0));
 /** `--coop`: start a game server, join it from two pages, and screenshot the lobby and a shared wave. */
 const coop = args.includes('--coop');
-const FLAGS = new Set(['--url', '--out', '--width', '--height', '--fairness']);
+/** `--room N`: the room the fairness runs play (zero-based; the first room by default). */
+const fairnessRoom = Number(opt('room', 0));
+const FLAGS = new Set(['--url', '--out', '--width', '--height', '--fairness', '--room']);
 const wanted = args.filter((a, i) => !a.startsWith('--') && !FLAGS.has(args[i - 1]));
 
 const CHROME = [
@@ -63,6 +65,8 @@ const SCENARIOS = {
   pause: `run(0, 'beginner'); bot(600); menu('pause')`,
   'quick-pause': `run(0, 'beginner'); bot(600); quickPause()`,
   debrief: `run(0, 'nightmare'); bot(6000, { suicide: true }); await debrief()`,
+  'shared-coop': `shared('coop'); run(0, 'beginner'); await drive(['ArrowRight'], 60); bot(900); await drive(['ArrowLeft'], 40)`,
+  'shared-deathmatch': `shared('deathmatch'); run(0, 'beginner'); await drive(['ArrowUp'], 60); bot(300)`,
 };
 
 const HELPERS = `
@@ -78,6 +82,15 @@ const HELPERS = `
     g.loop.callbacks.step();
   }
   function bot(ticks, opts) { g.debugBot(ticks, opts || {}); }
+  /** Two players on this screen, survive together or head to head. */
+  function shared(mode) { g.save.setSharedScreen(true); g.save.setSharedMode(mode); }
+  /** Hold keys for the second seat while the loop steps, so it walks. */
+  async function drive(codes, ticks) {
+    const ev = (type, code) => window.dispatchEvent(new KeyboardEvent(type, { code, key: code, bubbles: true }));
+    for (const c of codes) ev('keydown', c);
+    for (let i = 0; i < ticks; i++) g.loop.callbacks.step();
+    for (const c of codes) ev('keyup', c);
+  }
   /** Play a difficulty with the bot until it dies or the tick limit, and say how it went. */
   function fairness(difficulty, roomIndex, maxTicks) {
     run(roomIndex, difficulty);
@@ -193,13 +206,14 @@ async function runFairness(cdp) {
         cdp,
         `(async () => { for (let i = 0; i < 400 && !window.__game; i++) await new Promise((r) => setTimeout(r, 50)); })()`,
       );
-      const stats = await evaluate(cdp, `(async () => { ${HELPERS} return fairness('${preset}', 0, 9000); })()`);
+      const stats = await evaluate(cdp, `(async () => { ${HELPERS} return fairness('${preset}', ${fairnessRoom}, 9000); })()`);
       runs.push(stats);
     }
     const ticks = runs.map((r) => r.tick).sort((a, b) => a - b);
     const median = ticks[Math.floor(ticks.length / 2)];
     const row = {
       preset,
+      room: fairnessRoom + 1,
       runs: runs.length,
       medianSeconds: Math.round(median / 50),
       minSeconds: Math.round(ticks[0] / 50),

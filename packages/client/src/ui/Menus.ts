@@ -17,7 +17,7 @@
  * what you get; the original's own bitmaps replace them when present.
  */
 import type { ArtPack, ExtractedRoom, LobbyPlayer, MatchConfig, RoomPhase } from '@boxhead/shared';
-import { CHARACTERS, DIFFICULTIES, GAME_SPEEDS } from '@boxhead/shared';
+import { CHARACTERS, DEATHMATCH_KILL_TARGETS, DIFFICULTIES, GAME_SPEEDS } from '@boxhead/shared';
 import { drawComposed, type TextureSwap } from '../render/VectorModel.js';
 import { ClipIndex, composePose, type Layer } from '../render/Rig.js';
 import { drawSprite } from '../render/SpriteRenderer.js';
@@ -76,6 +76,8 @@ export interface RunResult {
   unlockedNext: boolean;
   /** Why the run did not count for high scores, or null when it did. */
   practice: string | null;
+  /** A deathmatch's outcome: who won and each seat's kills. Nothing is recorded. */
+  versus?: { winnerIndex: number; kills: number[]; names: string[] };
 }
 
 /** "today 14:02", "yesterday", or a short date, for the history. */
@@ -739,6 +741,13 @@ export class Menus {
     });
   }
 
+  /** The first bound key of each action, as caps, for the how-to-play. */
+  private keyLabel(actions: BindableAction[]): string {
+    return actions
+      .map((action) => keyName((this.save.keys[action] ?? DEFAULT_BINDINGS[action])[0] ?? ''))
+      .join(' ');
+  }
+
   private characterName(id: string): string {
     return CHARACTERS.find((c) => c.id === id)?.name ?? id;
   }
@@ -782,7 +791,10 @@ export class Menus {
         <div><label style="cursor:pointer"><input type="checkbox" id="shared" ${this.save.sharedScreen ? 'checked' : ''} style="accent-color:var(--red);vertical-align:-2px;margin-right:6px">two players on this screen</label></div>
         ${
           this.save.sharedScreen
-            ? `<div>player 2 <b>${this.characterName(this.save.secondCharacterId)}</b> &middot; <span style="text-transform:none;letter-spacing:0">gamepad, or arrows + Enter</span></div>`
+            ? `<div>player 2 <b>${this.characterName(this.save.secondCharacterId)}</b>
+                 <button class="back" id="secondChar" style="margin:0 0 0 8px">change</button>
+                 &middot; <span style="text-transform:none;letter-spacing:0">gamepad, or arrows + Enter, Backspace pauses</span></div>
+               <div><label style="cursor:pointer"><input type="checkbox" id="sharedDm" ${this.save.sharedMode === 'deathmatch' ? 'checked' : ''} style="accent-color:var(--red);vertical-align:-2px;margin-right:6px">deathmatch &mdash; head to head, first to ${DEATHMATCH_KILL_TARGETS[1]}</label></div>`
             : ''
         }
         ${this.save.practiceReason ? `<div><span class="badge strong">&#9888; practice run &mdash; ${this.save.practiceReason}</span></div>` : ''}
@@ -800,6 +812,16 @@ export class Menus {
       }
       this.renderRooms();
     });
+    inner.querySelector<HTMLButtonElement>('#secondChar')?.addEventListener('click', () => {
+      // Step to the next face that is not the first seat's.
+      const ids = CHARACTERS.map((c) => c.id);
+      let next = ids[(ids.indexOf(this.save.secondCharacterId) + 1) % ids.length]!;
+      if (next === this.selectedCharacter) next = ids[(ids.indexOf(next) + 1) % ids.length]!;
+      this.save.setSecondCharacter(next);
+      this.renderRooms();
+    });
+    const sharedDm = inner.querySelector<HTMLInputElement>('#sharedDm');
+    sharedDm?.addEventListener('change', () => this.save.setSharedMode(sharedDm.checked ? 'deathmatch' : 'coop'));
 
     for (const canvas of inner.querySelectorAll<HTMLCanvasElement>('[data-map]')) {
       const room = this.rooms.find((r) => r.id === canvas.dataset.map);
@@ -966,12 +988,12 @@ export class Menus {
       <h2>How to play</h2>
       <div class="panel"><div class="paper">
       <dl class="keys">
-        <dt>W A S D</dt><dd>move</dd>
+        <dt>${escapeHtml(this.keyLabel(['up', 'left', 'down', 'right']))}</dt><dd>move</dd>
         <dt>mouse</dt><dd>aim</dd>
-        <dt>click / space</dt><dd>fire &mdash; most guns fire once per press; hold to charge a grenade</dd>
+        <dt>click / ${escapeHtml(this.keyLabel(['fire']))}</dt><dd>fire &mdash; most guns fire once per press; hold to charge a grenade</dd>
         <dt>1 &ndash; 0</dt><dd>select weapon</dd>
-        <dt>Q / E, wheel</dt><dd>cycle weapons</dd>
-        <dt>P</dt><dd>quick pause</dd>
+        <dt>${escapeHtml(this.keyLabel(['prev', 'next']))}, wheel</dt><dd>cycle weapons</dd>
+        <dt>${escapeHtml(this.keyLabel(['pause']))}</dt><dd>quick pause</dd>
         <dt>Escape</dt><dd>pause menu: resume, restart, options, quit</dd>
         <dt>R</dt><dd>restart the run (while paused)</dd>
         <dt>M</dt><dd>mute</dd>
@@ -980,9 +1002,11 @@ export class Menus {
           bumpers cycle weapons, Start quick-pauses, B or Y opens the pause menu; in the menus the
           d-pad moves, A chooses, B goes back</dd>
         <dt>Two players</dt><dd>tick <i>two players on this screen</i> when choosing a room. Player 2
-          takes the gamepad, or the arrow keys with Enter to fire and , . to cycle, and aims the way
-          they walk. You share one screen, one score and one multiplier, and a fallen player comes
-          back beside the other.</dd>
+          takes the gamepad, or the arrow keys with Enter to fire, , . to cycle and Backspace to pause,
+          and aims the way they walk. In co-op you share one screen, one score and one multiplier, and a
+          fallen player comes back beside the other. Tick <i>deathmatch</i> for the original's head to
+          head: no zombies, the whole arsenal owned but unloaded until a crate is found, first to twenty
+          kills wins.</dd>
       </dl>
       <h2>Surviving</h2>
       <dl class="keys">
@@ -1479,6 +1503,10 @@ export class Menus {
       this.show('title');
       return;
     }
+    if (result.versus) {
+      this.renderVersusDebrief(result, result.versus);
+      return;
+    }
     const delta = result.score - result.bestBefore;
     const verdict = result.practice
       ? `<span class="badge strong">&#9888; practice run (${result.practice}) &mdash; not recorded</span>`
@@ -1516,6 +1544,31 @@ export class Menus {
           }
         </div>
         <button class="btn primary" id="again">Play again</button>
+        <button class="btn secondary" data-go="rooms">Choose another room</button>
+        <button class="btn secondary" data-go="title">Main menu</button>
+      </div>
+    `);
+    inner.querySelector<HTMLButtonElement>('#again')!.addEventListener('click', () => {
+      this.callbacks.onStart(result.roomId, this.selectedCharacter);
+    });
+    this.wireGoButtons(inner);
+    this.drawWatermark(inner.querySelector<HTMLCanvasElement>('.watermark')!);
+  }
+
+  /** A deathmatch ends with a winner, not a score: the original's "PLAYER n WINS". */
+  private renderVersusDebrief(result: RunResult, versus: RunResult['versus'] & object): void {
+    const winner = versus.winnerIndex >= 0 ? versus.names[versus.winnerIndex] ?? `Player ${versus.winnerIndex + 1}` : null;
+    const inner = this.shell(`
+      <canvas class="watermark"></canvas>
+      <div class="debrief">
+        <h2>${escapeHtml(result.roomName)}</h2>
+        <div class="sub" style="margin-bottom:0">deathmatch</div>
+        <div class="big" style="font-size:56px">${winner ? `${escapeHtml(winner)} wins` : 'draw'}</div>
+        <div class="stats">
+          ${versus.kills.map((k, i) => `<div>${escapeHtml(versus.names[i] ?? `Player ${i + 1}`)} <b>${k}</b></div>`).join('')}
+          <div>survived <b>${formatSeconds(result.seconds)}</b></div>
+        </div>
+        <button class="btn primary" id="again">Rematch</button>
         <button class="btn secondary" data-go="rooms">Choose another room</button>
         <button class="btn secondary" data-go="title">Main menu</button>
       </div>

@@ -21,6 +21,7 @@ export interface SavedRun {
   practiceReason: string | null;
   /** The second seat's character when the run was shared-screen. */
   secondCharacterId?: string;
+  mode?: 'coop' | 'deathmatch';
   /** The world, as `World.snapshot()` wrote it. */
   snapshot: unknown;
   /** For the title's label. */
@@ -100,6 +101,8 @@ export interface SaveState {
   sharedScreen?: boolean | undefined;
   /** The second player's character. */
   secondCharacterId?: string | undefined;
+  /** Shared screen: survive together, or head to head. */
+  sharedMode?: 'coop' | 'deathmatch' | undefined;
 }
 
 function defaults(): SaveState {
@@ -262,6 +265,15 @@ export class SaveData {
 
   get secondCharacterId(): string {
     return this.state.secondCharacterId ?? 'bond';
+  }
+
+  get sharedMode(): 'coop' | 'deathmatch' {
+    return this.state.sharedMode ?? 'coop';
+  }
+
+  setSharedMode(mode: 'coop' | 'deathmatch'): void {
+    this.state.sharedMode = mode;
+    this.persist();
   }
 
   setSecondCharacter(id: string): void {

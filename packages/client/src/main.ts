@@ -395,7 +395,7 @@ function startRun(roomId: string, characterId: string): void {
     difficulty: save.difficulty,
     gameSpeed: save.gameSpeed,
     devils: save.devils,
-    ...(save.sharedScreen ? { secondCharacterId: save.secondCharacterId } : {}),
+    ...(save.sharedScreen ? { secondCharacterId: save.secondCharacterId, mode: save.sharedMode } : {}),
   });
   bind(session, characterId);
   paused = false;
@@ -437,7 +437,9 @@ function parkRun(): void {
     devils: world.devilsEnabled,
     countsForHighScores: run.countsForHighScores,
     practiceReason: run.practiceReason,
-    ...(session.localSeats >= 2 ? { secondCharacterId: world.players[1]?.characterId ?? save.secondCharacterId } : {}),
+    ...(session.localSeats >= 2
+      ? { secondCharacterId: world.players[1]?.characterId ?? save.secondCharacterId, mode: session.mode }
+      : {}),
     snapshot: world.snapshot(),
     level: world.level,
     score: world.score,
@@ -463,7 +465,7 @@ function continueRun(): void {
       gameSpeed: parked.gameSpeed,
       devils: parked.devils,
       snapshot: parked.snapshot as WorldSnapshot,
-      ...(parked.secondCharacterId ? { secondCharacterId: parked.secondCharacterId } : {}),
+      ...(parked.secondCharacterId ? { secondCharacterId: parked.secondCharacterId, mode: parked.mode ?? 'coop' } : {}),
     });
   } catch {
     // A snapshot from an older build may not restore; drop it rather than crash.
@@ -542,7 +544,37 @@ function endRun(): void {
 
 /** Bank the current run's result exactly once, whatever ended it. */
 function recordRun(): RunResult | null {
-  if (!run || debriefed || !run.session.recordsScores) return null;
+  if (!run || debriefed) return null;
+  if (run.session instanceof LocalSession && run.session.mode === 'deathmatch') {
+    // A deathmatch leaves a winner, not a score, and nothing in the save.
+    debriefed = true;
+    save.clearSavedRun();
+    const { world, room } = run.session;
+    return {
+      roomId: room.id,
+      roomName: room.name,
+      score: 0,
+      level: world.level,
+      kills: world.kills,
+      peakMultiplier: 0,
+      seconds: Math.round((world.tick * run.session.stepMs) / 1000),
+      difficulty: run.session.difficulty,
+      levelsCleared: 0,
+      bestBefore: 0,
+      accuracy: null,
+      longestStreak: 0,
+      favouriteWeapon: null,
+      isBest: false,
+      unlockedNext: false,
+      practice: null,
+      versus: {
+        winnerIndex: world.winnerIndex,
+        kills: world.players.map((p) => p.kills),
+        names: world.players.map((p, i) => `Player ${i + 1}`),
+      },
+    };
+  }
+  if (!run.session.recordsScores) return null;
   debriefed = true;
   // The run is over one way or another; there is nothing left to park.
   save.clearSavedRun();
@@ -842,7 +874,8 @@ function drawQuickPause(): void {
 
   ctx.font = `700 ${11 * s}px "Segoe UI", system-ui, sans-serif`;
   ctx.fillStyle = '#c9a75a';
-  ctx.fillText('P   RESUME          ESC   MENU          R   RESTART', width / 2, height / 2 + 40 * s);
+  const pauseKey = keyName(input.keysFor('pause')[0] ?? 'KeyP').toUpperCase();
+  ctx.fillText(`${pauseKey}   RESUME          ESC   MENU          R   RESTART`, width / 2, height / 2 + 40 * s);
   ctx.textAlign = 'left';
 }
 

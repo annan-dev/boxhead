@@ -82,17 +82,19 @@ export const RESERVED_KEYS = new Set([
   'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9', 'Digit0',
 ]);
 
-/** The pointer's other buttons, bindable like keys: `Mouse1` is the middle, `Mouse2` the right. */
+/**
+ * The pointer's other buttons, bindable like keys: `Mouse1` is the middle,
+ * `Mouse2` the right. The thumb buttons are left alone: browsers use them
+ * for back and forward and cannot be talked out of it.
+ */
 export function mouseCode(button: number): string | null {
-  return button === 1 ? 'Mouse1' : button === 2 ? 'Mouse2' : button === 3 ? 'Mouse3' : button === 4 ? 'Mouse4' : null;
+  return button === 1 ? 'Mouse1' : button === 2 ? 'Mouse2' : null;
 }
 
 /** A key code as a player would read it on the cap. */
 export function keyName(code: string): string {
   if (code === 'Mouse1') return 'Middle click';
   if (code === 'Mouse2') return 'Right click';
-  if (code === 'Mouse3') return 'Mouse 4';
-  if (code === 'Mouse4') return 'Mouse 5';
   if (code.startsWith('Key')) return code.slice(3);
   if (code.startsWith('Digit')) return code.slice(5);
   const names: Record<string, string> = {
@@ -117,7 +119,7 @@ const SEAT_B: Bindings = {
   fire: ['Enter', 'ShiftRight', 'Numpad0'],
   next: ['Period', 'NumpadAdd'],
   prev: ['Comma', 'NumpadSubtract'],
-  pause: [],
+  pause: ['Backspace'],
 };
 const ARROWS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
 
@@ -280,6 +282,7 @@ export class Input {
     if (action === 'pause') this.pausePressed = true;
     if (seatB === 'next') this.latchB.next = true;
     if (seatB === 'prev') this.latchB.prev = true;
+    if (seatB === 'pause') this.pausePressed = true;
   };
 
   /** The first seat's action for a key; arrows are the second seat's when it exists. */

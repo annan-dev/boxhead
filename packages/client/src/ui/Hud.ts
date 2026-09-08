@@ -90,7 +90,10 @@ export class Hud {
       this.drawHealth(ctx, camera, other, scale);
       if (other.index !== this.localPlayerIndex) this.drawName(ctx, camera, other, scale);
     }
-    if (player && player.state === 'alive') this.drawThreatMarkers(ctx, camera, player, scale);
+    for (let seat = 0; seat < Math.max(1, this.localSeats); seat++) {
+      const local = world.players[seat === 0 ? this.localPlayerIndex : seat];
+      if (local && local.state === 'alive') this.drawThreatMarkers(ctx, camera, local, scale);
+    }
     if (player && pointer) this.drawReticle(ctx, player, pointer, scale);
     if (this.localSeats >= 2) {
       const second = world.players[1];
@@ -193,7 +196,9 @@ export class Hud {
       // Keep out of the score panel (top right) and the weapon strip (bottom
       // centre): a marker that lands in either is pushed to the panel's edge.
       if (x > width - 240 * s && y < 84 * s) y = 84 * s;
-      if (Math.abs(x - width / 2) < 300 * s && y > height - 66 * s) y = height - 66 * s;
+      const strips = this.localSeats >= 2 ? [width * 0.27, width * 0.73] : [width / 2];
+      const stripHalf = this.localSeats >= 2 ? 170 * s : 300 * s;
+      if (strips.some((cx) => Math.abs(x - cx) < stripHalf) && y > height - 72 * s) y = height - 72 * s;
       x = Math.max(margin, Math.min(width - margin, x));
       y = Math.max(margin, Math.min(height - margin, y));
       // Close threats draw bigger and brighter; far ones fade toward the edge.
