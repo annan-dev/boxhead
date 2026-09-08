@@ -459,6 +459,26 @@ export function extractRoom(options: RoomExtractOptions): ExtractedRoom | null {
       }
     }
     floorBounds = { x: fx0, y: fy0, w: fx1 - fx0, h: fy1 - fy0 };
+
+    // The original's map is the room's area divided into cells, and
+    // `CMap.InitCells` flags the outermost ring of those cells solid
+    // (`mCollide_EdgeOfMap | mCollide_Solid`). Several rooms put spawn markers
+    // in that ring, behind a line of prebuilt walls: the zombies spawn in the
+    // border and the wall is the last walkable square, exactly as the
+    // original plays it. The room's origin is the SWF's (0,0), which the
+    // offsets above moved onto the grid; its extent is the painted floor.
+    const originCx = Math.round(offsetX / ROOM_CELL);
+    const originCy = Math.round(offsetY / ROOM_CELL);
+    const areaCols = Math.round((fx1 - offsetX) / ROOM_CELL);
+    const areaRows = Math.round((fy1 - offsetY) / ROOM_CELL);
+    for (let cy = 0; cy < areaRows; cy++) {
+      for (let cx = 0; cx < areaCols; cx++) {
+        if (cx !== 0 && cy !== 0 && cx !== areaCols - 1 && cy !== areaRows - 1) continue;
+        const tx = originCx + cx;
+        const ty = originCy + cy;
+        if (tx >= 0 && ty >= 0 && tx < cols && ty < rows) tiles[ty * cols + tx] = 1;
+      }
+    }
   }
 
   const floor: SpriteFrame = { layers: shift };

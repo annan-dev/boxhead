@@ -814,13 +814,8 @@ export class World {
   private spawnClear(spot: { x: number; y: number }, mindObjects: boolean): boolean {
     const cell = this.map.cellOf(spot.x, spot.y);
     const cells: Array<{ cx: number; cy: number }> = [cell];
-    for (const [dx, dy] of [[1, 0], [0, 1], [-1, 0], [0, -1]] as const) {
-      const cx = cell.cx + dx;
-      const cy = cell.cy + dy;
-      if (this.map.tileAt(cx, cy) === Tile.Solid) continue;
-      cells.push({ cx, cy });
-      break;
-    }
+    const entry = this.entryCell(cell);
+    if (entry) cells.push(entry);
     for (const c of cells) {
       if (mindObjects) {
         if (this.map.tileAt(c.cx, c.cy) === Tile.Breakable) return false;
@@ -1576,7 +1571,9 @@ export class World {
       if (enemy.state !== 'alive') continue;
       const beforeX = enemy.x;
       const beforeY = enemy.y;
-      const moved = moveCircle(this.map, enemy.x, enemy.y, enemy.vx, enemy.vy, enemy.radius);
+      const moved = this.inBorder(enemy)
+        ? this.moveFromBorder(enemy)
+        : moveCircle(this.map, enemy.x, enemy.y, enemy.vx, enemy.vy, enemy.radius);
       enemy.x = moved.x;
       enemy.y = moved.y;
       this.hash.move(enemy.id, enemy.x, enemy.y);
@@ -1755,7 +1752,45 @@ export class World {
    * when a wall is built on top of it. Without this the creature is immobile
    * and unkillable, and the wave can never finish.
    */
+  /**
+   * True for a creature standing in the map's solid edge ring, where the
+   * original's spawn markers sit: it is not stuck, it is waiting to enter.
+   */
+  private inBorder(creature: Enemy | Player): boolean {
+    const cell = this.map.cellOf(creature.x, creature.y);
+    return creature.kind === 'enemy' && this.map.tileAt(cell.cx, cell.cy) === Tile.Solid;
+  }
+
+  /**
+   * A creature in the border walks straight out through its entry cell, the
+   * first open neighbour east, south, west then north (the original's
+   * `ValidMoveDirection`), and only once that cell is passable: a wall
+   * standing there holds it in the dark until the wall falls.
+   */
+  private moveFromBorder(enemy: Enemy): { x: number; y: number } {
+    const cell = this.map.cellOf(enemy.x, enemy.y);
+    const entry = this.entryCell(cell);
+    if (!entry || !this.map.passable(entry.cx, entry.cy)) return { x: enemy.x, y: enemy.y };
+    const centre = this.map.centreOf(entry.cx, entry.cy);
+    const dx = centre.x - enemy.x;
+    const dy = centre.y - enemy.y;
+    const distance = Math.hypot(dx, dy) || 1;
+    const step = Math.min(distance, enemy.speed);
+    return { x: enemy.x + (dx / distance) * step, y: enemy.y + (dy / distance) * step };
+  }
+
+  /** The first non-solid orthogonal neighbour, east, south, west, north; null when walled in. */
+  private entryCell(cell: { cx: number; cy: number }): { cx: number; cy: number } | null {
+    for (const [dx, dy] of [[1, 0], [0, 1], [-1, 0], [0, -1]] as const) {
+      const cx = cell.cx + dx;
+      const cy = cell.cy + dy;
+      if (this.map.tileAt(cx, cy) !== Tile.Solid) return { cx, cy };
+    }
+    return null;
+  }
+
   private unstick(creature: Enemy | Player): void {
+    if (this.inBorder(creature)) return;
     if (!circleBlocked(this.map, creature.x, creature.y, creature.radius)) return;
     const cell = this.map.cellOf(creature.x, creature.y);
     let bestX = creature.x;

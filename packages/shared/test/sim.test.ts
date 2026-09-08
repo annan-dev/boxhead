@@ -727,3 +727,33 @@ test('a fake wall on a spawn point\'s way out shuts that spawn', () => {
   for (let i = 0; i < 600; i++) world.step([emptyCommand()]);
   assert.equal(world.enemies.length, 0, 'zombies spawned behind a wall across their exit');
 });
+
+test('room 3: border spawns behind the prebuilt walls stay shut until the walls fall', async () => {
+  const fs = await import('node:fs');
+  const art = JSON.parse(fs.readFileSync(new URL('../../../assets/art.json', import.meta.url), 'utf8'));
+  const arena = art.rooms[2];
+  // Level 10: a 55-zombie wave, so plenty are still queued when the gate falls.
+  const world = new World({ room: arena, seed: 3, playerCount: 1, devils: false, startLevel: 10 });
+  const player = world.players[0]!;
+  player.maxLife = 1e9;
+  player.life = 1e9;
+  const pocket = new Set(['5,2', '6,2', '7,2', '8,2', '9,2', '10,2']);
+  const inPocket = (): number =>
+    world.enemies.filter((e) => {
+      const c = world.map.cellOf(e.x, e.y);
+      return pocket.has(`${c.cx},${c.cy}`);
+    }).length;
+  for (let i = 0; i < 2000; i++) {
+    world.step([emptyCommand()]);
+    assert.equal(inPocket(), 0, `a zombie spawned in the sealed pocket at tick ${world.tick}`);
+  }
+  assert.ok(world.enemies.length > 0, 'nothing spawned anywhere');
+  // Knock the gate down: the pocket opens and zombies come through it.
+  for (let cx = 5; cx <= 10; cx++) world.map.damageWall(cx, 3, 1e6);
+  let came = false;
+  for (let i = 0; i < 3000 && !came; i++) {
+    world.step([emptyCommand()]);
+    came = inPocket() > 0;
+  }
+  assert.ok(came, 'the pocket never opened after its walls fell');
+});
