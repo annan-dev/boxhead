@@ -406,6 +406,8 @@ const STYLE = `
   /* How to play: two columns where there is room, so it fits a screen. */
   .howto { display: grid; grid-template-columns: 1fr; gap: 0 36px; }
   @media (min-width: 1180px) { .howto { grid-template-columns: 1fr 1fr; } .howto .keys { grid-template-columns: 120px 1fr; margin-bottom: 14px; } }
+  .controls { display: grid; grid-template-columns: 1fr; gap: 6px 28px; margin-bottom: 14px; }
+  @media (min-width: 1180px) { .controls { grid-template-columns: 1fr 1fr 1fr; } .controls .keygrid.one { grid-template-columns: 1fr; max-width: none; } }
   .keygrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0 30px; max-width: 700px; }
   .keygrid .row { margin-bottom: 10px; }
   .keygrid label { min-width: 140px; }
@@ -1251,7 +1253,10 @@ export class Menus {
       <p class="hint" style="margin:0 0 12px">Click a key and press the new one, or a mouse button. Shift-click to add a second key
         beside the first. Weapons stay on 1 to 0; Escape, R, M and F3 are the game's own.</p>
       <div id="keyNote" class="note bad" hidden></div>
-      <div class="keygrid">
+      <div class="controls">
+      <div>
+      <p class="hint" style="margin:0 0 8px">Player 1 on the keyboard:</p>
+      <div class="keygrid one">
         ${(Object.keys(DEFAULT_BINDINGS) as BindableAction[])
           .map((action) => {
             const keys = this.save.keys[action] ?? DEFAULT_BINDINGS[action];
@@ -1260,8 +1265,10 @@ export class Menus {
           })
           .join('')}
       </div>
-      <p class="hint" style="margin:14px 0 8px">Player 2 on the keyboard, when two share this screen:</p>
-      <div class="keygrid">
+      </div>
+      <div>
+      <p class="hint" style="margin:0 0 8px">Player 2 on the keyboard, when two share this screen:</p>
+      <div class="keygrid one">
         ${(Object.keys(DEFAULT_SEAT_B) as BindableAction[])
           .map((action) => {
             const keys = this.save.keysB[action] ?? DEFAULT_SEAT_B[action];
@@ -1270,8 +1277,10 @@ export class Menus {
           })
           .join('')}
       </div>
-      <p class="hint" style="margin:14px 0 8px">Gamepad: click a button and press the new one. Sticks and the d-pad stay as they are.</p>
-      <div class="keygrid">
+      </div>
+      <div>
+      <p class="hint" style="margin:0 0 8px">Gamepad: click a button and press the new one. Sticks and the d-pad stay as they are.</p>
+      <div class="keygrid one">
         ${(Object.keys(DEFAULT_PAD) as PadAction[])
           .map((action) => {
             const buttons = this.save.pad[action] ?? DEFAULT_PAD[action];
@@ -1279,6 +1288,8 @@ export class Menus {
               <button class="key" data-pad="${action}">${buttons.map((b) => escapeHtml(padButtonName(b))).join(' / ')}</button></div>`;
           })
           .join('')}
+      </div>
+      </div>
       </div>
       <button class="btn secondary" id="resetKeys" style="max-width:280px">Default keys and buttons</button>
       </section>

@@ -130,7 +130,13 @@ export function keyName(code: string): string {
     Enter: 'Enter', Tab: 'Tab', Comma: ',', Period: '.', Slash: '/', Semicolon: ';',
     Quote: "'", Backslash: '\\', Minus: '-', Equal: '=', Backquote: '`',
   };
-  return names[code] ?? code.replace(/^Numpad/, 'Num ');
+  if (names[code]) return names[code]!;
+  if (code.startsWith('Numpad')) return `Num ${code.slice(6).replace('Decimal', '.').replace('Divide', '/').replace('Multiply', '*').replace('Enter', 'Enter')}`;
+  if (code.startsWith('Intl')) return code.slice(4);
+  if (code === 'CapsLock') return 'Caps';
+  if (code === 'ContextMenu') return 'Menu';
+  // Whatever is left, split from its code style into words.
+  return code.replace(/([a-z])([A-Z])/g, '$1 $2');
 }
 
 /**
