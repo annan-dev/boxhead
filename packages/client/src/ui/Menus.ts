@@ -26,7 +26,19 @@ import { UNLOCK_CLEARS, UNLOCK_LEVEL } from '../state/SaveData.js';
 import { assetUrl } from '../assets/AssetSource.js';
 import { CHARACTER_PALETTES } from '../render/HeadArt.js';
 import { TitleArt } from './TitleArt.js';
-import { ACTION_LABELS, DEFAULT_BINDINGS, RESERVED_KEYS, firstGamepad, keyName, mouseCode, type BindableAction } from '../input/Input.js';
+import {
+  ACTION_LABELS,
+  DEFAULT_BINDINGS,
+  DEFAULT_PAD,
+  PAD_ACTION_LABELS,
+  RESERVED_KEYS,
+  firstGamepad,
+  keyName,
+  mouseCode,
+  padButtonName,
+  type BindableAction,
+  type PadAction,
+} from '../input/Input.js';
 
 export type Screen =
   | 'title'
@@ -1195,7 +1207,17 @@ export class Menus {
           })
           .join('')}
       </div>
-      <button class="btn secondary" id="resetKeys" style="max-width:280px">Default keys</button>
+      <p class="hint" style="margin:14px 0 8px">Gamepad: click a button and press the new one. Sticks and the d-pad stay as they are.</p>
+      <div class="keygrid">
+        ${(Object.keys(DEFAULT_PAD) as PadAction[])
+          .map((action) => {
+            const buttons = this.save.pad[action] ?? DEFAULT_PAD[action];
+            return `<div class="row"><label>${PAD_ACTION_LABELS[action]}</label>
+              <button class="key" data-pad="${action}">${buttons.map((b) => escapeHtml(padButtonName(b))).join(' / ')}</button></div>`;
+          })
+          .join('')}
+      </div>
+      <button class="btn secondary" id="resetKeys" style="max-width:280px">Default keys and buttons</button>
       </section>
       <section data-tab="progress" ${this.optionsTab === 'progress' ? '' : 'hidden'}>
       <div class="stats">
@@ -1375,6 +1397,49 @@ export class Menus {
           window.addEventListener('keydown', onKey, true);
           window.addEventListener('mousedown', onMouse, true);
         }, 0);
+      });
+    }
+    for (const button of inner.querySelectorAll<HTMLButtonElement>('button.key[data-pad]')) {
+      button.addEventListener('click', () => {
+        const action = button.dataset.pad!;
+        button.textContent = 'press a button';
+        button.classList.add('listening');
+        // Watch the pad until a button rises; Escape gives up.
+        const held = new Set<number>();
+        const first = firstGamepad();
+        first?.buttons.forEach((b, i) => {
+          if (b.pressed) held.add(i);
+        });
+        const stop = (): void => {
+          window.clearInterval(timer);
+          window.removeEventListener('keydown', onKey, true);
+        };
+        const onKey = (event: KeyboardEvent): void => {
+          if (event.code !== 'Escape') return;
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          stop();
+          this.renderOptions();
+        };
+        window.addEventListener('keydown', onKey, true);
+        const timer = window.setInterval(() => {
+          const pad = firstGamepad();
+          if (!pad) return;
+          for (let i = 0; i < pad.buttons.length; i++) {
+            const pressed = pad.buttons[i]!.pressed || pad.buttons[i]!.value > 0.5;
+            if (!pressed) {
+              held.delete(i);
+              continue;
+            }
+            if (held.has(i) || i >= 12) continue;
+            stop();
+            this.save.setPadButton(action, i, DEFAULT_PAD);
+            this.callbacks.onKeys();
+            this.renderOptions();
+            inner.querySelector<HTMLButtonElement>(`button.key[data-pad="${action}"]`)?.focus();
+            return;
+          }
+        }, 40);
       });
     }
     inner.querySelector<HTMLButtonElement>('#resetKeys')!.addEventListener('click', () => {

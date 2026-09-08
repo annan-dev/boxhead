@@ -93,6 +93,8 @@ export interface SaveState {
   rumble?: boolean | undefined;
   /** Key bindings by action; absent actions use the defaults. */
   keys?: Record<string, string[]> | undefined;
+  /** Gamepad buttons by action; absent actions use the defaults. */
+  pad?: Record<string, number[]> | undefined;
   /** One-time tips already shown. */
   tipsSeen?: string[] | undefined;
   /** Whether the one-time tips show at all. */
@@ -378,6 +380,23 @@ export class SaveData {
 
   resetKeys(): void {
     delete this.state.keys;
+    delete this.state.pad;
+    this.persist();
+  }
+
+  get pad(): Record<string, number[]> {
+    return this.state.pad ?? {};
+  }
+
+  /** Bind a pad action to one button; a button serves one action only. */
+  setPadButton(action: string, button: number, defaults: Record<string, number[]>): void {
+    const pad = { ...this.pad };
+    for (const other of Object.keys(defaults)) {
+      const current = pad[other] ?? defaults[other] ?? [];
+      pad[other] = current.filter((b) => b !== button);
+    }
+    pad[action] = [button];
+    this.state.pad = pad;
     this.persist();
   }
 

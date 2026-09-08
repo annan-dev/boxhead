@@ -302,13 +302,32 @@ async function runCoop(host) {
       drive(host, [{ keys: ['KeyD', 'Space'], ms: 1500 }, { keys: ['KeyW', 'Space'], ms: 1200 }, { keys: ['Space'], ms: 1500 }]),
       drive(guest, [{ keys: ['KeyA', 'Space'], ms: 1500 }, { keys: ['KeyS', 'Space'], ms: 1200 }, { keys: ['Space'], ms: 1500 }]),
     ]);
+    // Pull the guest's plug: the client must come back to the same seat on
+    // its own, with the server having held it, and keep playing.
+    const reconnect = await evaluate(
+      guest,
+      `(async () => {
+        const session = __game.run.session;
+        const seat = session.localPlayerIndex;
+        const tickBefore = session.world.tick;
+        const net = session['net'];
+        net['socket']?.close();
+        let state = '';
+        for (let i = 0; i < 120; i++) {
+          await new Promise((r) => setTimeout(r, 100));
+          state = net.state;
+          if (state === 'joined' && session.world.tick > tickBefore + 20) break;
+        }
+        return { seatBefore: seat, seatAfter: session.localPlayerIndex, state, tickBefore, tickAfter: session.world.tick };
+      })()`,
+    );
     const hostNet = await evaluate(host, `__game.run.session.stats()`);
     const guestNet = await evaluate(guest, `__game.run.session.stats()`);
     for (const [cdp, name] of [[host, 'coop-host'], [guest, 'coop-guest']]) {
       const shot = await cdp.send('Page.captureScreenshot', { format: 'png' });
       writeFileSync(join(out, `${name}.png`), Buffer.from(shot.data, 'base64'));
     }
-    const report = { hostScreen, guestScreen, host: { ...hostStats, net: hostNet }, guest: { ...guestStats, net: guestNet } };
+    const report = { hostScreen, guestScreen, reconnect, host: { ...hostStats, net: hostNet }, guest: { ...guestStats, net: guestNet } };
     console.log(JSON.stringify(report, null, 2));
     writeFileSync(join(out, 'coop.json'), JSON.stringify(report, null, 2));
     guestBrowser.close();

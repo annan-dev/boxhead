@@ -26,7 +26,7 @@ import {
   type WorldSnapshot,
 } from '@boxhead/shared';
 import { Loop } from './loop/Loop.js';
-import { Input, keyName, type Bindings } from './input/Input.js';
+import { Input, keyName, type Bindings, type PadBindings } from './input/Input.js';
 import { Camera } from './render/Camera.js';
 import { GameRenderer } from './render/GameRenderer.js';
 import { Hud } from './ui/Hud.js';
@@ -120,6 +120,7 @@ const rooms: ExtractedRoom[] = pack.rooms.length > 0 ? pack.rooms : ROOMS;
 const save = new SaveData();
 const input = new Input(canvas);
 input.setBindings(save.keys as Partial<Bindings>);
+input.setPadBindings(save.pad as Partial<PadBindings>);
 
 // The original's own menu pictures: logo, level icons, portraits. Optional;
 // the menus draw their own stand-ins when the manifest is absent.
@@ -224,7 +225,10 @@ const menus = new Menus(app, pack, rooms, save, screens, {
     if (audio.muted !== value) audio.toggleMute();
   },
   onFeel: () => applyFeelSettings(),
-  onKeys: () => input.setBindings(save.keys as Partial<Bindings>),
+  onKeys: () => {
+    input.setBindings(save.keys as Partial<Bindings>);
+    input.setPadBindings(save.pad as Partial<PadBindings>);
+  },
   onPadSeen: () => {
     input.padSeen = true;
   },

@@ -13,7 +13,7 @@
  */
 import { emptyCommand, type InputCommand } from '@boxhead/shared';
 
-/** Standard-mapping gamepad buttons. */
+/** Standard-mapping gamepad buttons the d-pad and sticks use; the rest are bindable. */
 const PAD = {
   a: 0,
   b: 1,
@@ -27,6 +27,32 @@ const PAD = {
   left: 14,
   right: 15,
 } as const;
+
+/** The pad's actions a player may move to other buttons. */
+export type PadAction = 'fire' | 'next' | 'prev' | 'menu' | 'pause';
+export type PadBindings = Record<PadAction, number[]>;
+export const DEFAULT_PAD: PadBindings = {
+  fire: [PAD.rt, PAD.a],
+  next: [PAD.rb],
+  prev: [PAD.lb],
+  menu: [PAD.b, PAD.y],
+  pause: [PAD.start],
+};
+export const PAD_ACTION_LABELS: Record<PadAction, string> = {
+  fire: 'Fire',
+  next: 'Next weapon',
+  prev: 'Previous weapon',
+  menu: 'Pause menu',
+  pause: 'Quick pause',
+};
+/** A standard-mapping button as a player knows it. */
+export function padButtonName(index: number): string {
+  const names: Record<number, string> = {
+    0: 'A', 1: 'B', 2: 'X', 3: 'Y', 4: 'LB', 5: 'RB', 6: 'LT', 7: 'RT', 8: 'Back', 9: 'Start',
+    10: 'L stick', 11: 'R stick', 12: 'D-pad up', 13: 'D-pad down', 14: 'D-pad left', 15: 'D-pad right', 16: 'Guide',
+  };
+  return names[index] ?? `Button ${index}`;
+}
 const STICK_DEADZONE = 0.25;
 /** How far ahead of the player the right stick aims, in world pixels. */
 const PAD_AIM_REACH = 180;
@@ -177,6 +203,17 @@ export class Input {
   private keyToAction = new Map<string, BindableAction>();
   /** Seats driven from this machine: one, or two sharing the screen. */
   private localPlayers = 1;
+  private pad: PadBindings = DEFAULT_PAD;
+
+  /** Install the pad's bindings; an empty action keeps its default. */
+  setPadBindings(bindings: Partial<Record<PadAction, number[]>>): void {
+    const merged = { ...DEFAULT_PAD };
+    for (const action of Object.keys(DEFAULT_PAD) as PadAction[]) {
+      const buttons = bindings[action];
+      if (buttons && buttons.length > 0) merged[action] = buttons;
+    }
+    this.pad = merged;
+  }
   /** The second seat's edge-triggered presses. */
   private latchB = { next: false, prev: false };
   /** The second seat faces the way it last walked when it has no stick. */
@@ -327,7 +364,7 @@ export class Input {
     this.padHeld.clear();
     if (!pad) return;
     for (let i = 0; i < pad.buttons.length; i++) if (pressed(pad, i)) this.padHeld.add(i);
-    this.padFireLatched = this.padHeld.has(PAD.a) || this.padHeld.has(PAD.rt);
+    this.padFireLatched = this.pad.fire.some((b) => this.padHeld.has(b));
     this.padFire = false;
   }
 
@@ -429,21 +466,21 @@ export class Input {
         this.padAimY = my / length;
       }
 
-      const fireHeld = now.has(PAD.rt) || now.has(PAD.a);
+      const fireHeld = this.pad.fire.some((b) => now.has(b));
       if (!fireHeld) this.padFireLatched = false;
       this.padFire = fireHeld && !this.padFireLatched;
       const latch = this.padSeat === 1 ? this.latchB : null;
-      if (rose(PAD.rb)) {
+      if (this.pad.next.some(rose)) {
         if (latch) latch.next = true;
         else this.pendingNext = true;
       }
-      if (rose(PAD.lb)) {
+      if (this.pad.prev.some(rose)) {
         if (latch) latch.prev = true;
         else this.pendingPrev = true;
       }
-      if (rose(PAD.b) || rose(PAD.y)) this.menuPressed = true;
+      if (this.pad.menu.some(rose)) this.menuPressed = true;
     }
-    if (rose(PAD.start)) this.pausePressed = true;
+    if (this.pad.pause.some(rose)) this.pausePressed = true;
     this.padHeld = now;
   }
 
