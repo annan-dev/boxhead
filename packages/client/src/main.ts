@@ -49,6 +49,8 @@ app.innerHTML = `
     body { font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
            color: #dfe3e8; }
     #view { display: block; width: 100vw; height: 100vh; cursor: crosshair; }
+    /* In play the HUD draws its own reticle; the browser's must not double it. */
+    #view.aiming { cursor: none; }
     #boot { position: fixed; inset: 0; display: grid; place-content: center; gap: 10px;
             text-align: center; background: #07080a; z-index: 30; }
     #boot h1 { margin: 0; font: 400 34px/1 "Anton", Impact, "Arial Black", sans-serif; letter-spacing: .12em;
@@ -472,6 +474,7 @@ const loop = new Loop(
     draw: (alpha) => {
       if (!run) {
         // Nothing to show behind the menus; keep the canvas quiet.
+        canvas.classList.remove('aiming');
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.fillStyle = '#0a0b0d';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -484,7 +487,9 @@ const loop = new Loop(
       const blend = frozen ? 1 : alpha;
       camera.interpolate(blend);
       renderer.draw(ctx, camera, blend);
-      hud.draw(ctx, camera);
+      const aiming = !frozen && !input.padOwnsAim && !run.session.world.gameOver;
+      canvas.classList.toggle('aiming', aiming);
+      hud.draw(ctx, camera, aiming ? { x: input.pointerX, y: input.pointerY } : null);
 
       if (paused && !menus.isOpen) drawQuickPause();
       if (showStats) drawStats();

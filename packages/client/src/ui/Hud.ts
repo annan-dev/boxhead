@@ -57,7 +57,12 @@ export class Hud {
     this.lastLevel = world.level;
   }
 
-  draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
+  draw(
+    ctx: CanvasRenderingContext2D,
+    camera: Camera,
+    /** Pointer in canvas pixels while the mouse aims; null when a pad does. */
+    pointer: { x: number; y: number } | null = null,
+  ): void {
     const world = this.world;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.textBaseline = 'alphabetic';
@@ -82,6 +87,7 @@ export class Hud {
       if (other.index !== this.localPlayerIndex) this.drawName(ctx, camera, other, scale);
     }
     if (player && player.state === 'alive') this.drawThreatMarkers(ctx, camera, player, scale);
+    if (player && pointer) this.drawReticle(ctx, player, pointer, scale);
     if (player) this.drawWeapons(ctx, player, scale);
     this.drawScore(ctx, scale);
     this.drawMessages(ctx, scale);
@@ -193,6 +199,43 @@ export class Hud {
       ctx.stroke();
       ctx.setTransform(1, 0, 0, 1, 0, 0);
     }
+    ctx.restore();
+  }
+
+  /**
+   * The aim: four ticks around a gap, which spring outward on each shot and
+   * settle as the weapon cools. It replaces the browser's crosshair so the
+   * feel of the gun reaches the hand that aims it.
+   */
+  private drawReticle(
+    ctx: CanvasRenderingContext2D,
+    player: Player,
+    pointer: { x: number; y: number },
+    s: number,
+  ): void {
+    const def = WEAPONS[player.current];
+    const cooling = def.fireRate > 0 ? Math.max(0, Math.min(1, player.fireCooldown / def.fireRate)) : 0;
+    const kick = cooling * cooling * (6 + def.shake * 2) * s;
+    const gap = 5 * s + kick;
+    const tick = 6 * s;
+    const dead = player.state !== 'alive';
+    ctx.save();
+    ctx.translate(pointer.x, pointer.y);
+    ctx.lineCap = 'round';
+    for (const pass of [0, 1]) {
+      ctx.lineWidth = (pass === 0 ? 4 : 2) * s;
+      ctx.strokeStyle = pass === 0 ? 'rgba(0,0,0,0.55)' : dead ? 'rgba(233,226,208,0.35)' : 'rgba(233,226,208,0.95)';
+      ctx.beginPath();
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+        ctx.moveTo(dx * gap, dy * gap);
+        ctx.lineTo(dx * (gap + tick), dy * (gap + tick));
+      }
+      ctx.stroke();
+    }
+    ctx.fillStyle = dead ? 'rgba(255,48,64,0.35)' : 'rgba(255,48,64,0.95)';
+    ctx.beginPath();
+    ctx.arc(0, 0, 1.6 * s, 0, Math.PI * 2);
+    ctx.fill();
     ctx.restore();
   }
 

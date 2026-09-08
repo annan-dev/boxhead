@@ -100,6 +100,11 @@ export class Input {
   /** Whether a gamepad has been seen at all, for the hint text. */
   padSeen = false;
 
+  /** True while the pad, not the mouse, owns the aim. */
+  get padOwnsAim(): boolean {
+    return this.padAims;
+  }
+
   constructor(private readonly target: HTMLCanvasElement) {
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
