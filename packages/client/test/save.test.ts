@@ -136,3 +136,26 @@ test('the record line outlives the ten-run history and merges through a code', (
   assert.equal(merged.runs, 4, 'runs add up across the two records');
   assert.equal(merged.bestLevel, 25, 'the higher best stays');
 });
+
+test('the practice slider says where a level sits among the presets', () => {
+  const presets = [
+    { name: 'Beginner', startLevel: 1 },
+    { name: 'Intermediate', startLevel: 10 },
+    { name: 'Expert', startLevel: 20 },
+    { name: 'Nightmare', startLevel: 35 },
+  ];
+  assert.equal(SaveData.startLevelLabel(0, presets), 'off');
+  assert.equal(SaveData.startLevelLabel(10, presets), 'level 10, where Intermediate opens');
+  assert.equal(SaveData.startLevelLabel(15, presets), 'level 15, between Intermediate and Expert');
+  assert.equal(SaveData.startLevelLabel(20, presets), 'level 20, where Expert opens');
+  assert.equal(SaveData.startLevelLabel(35, presets), 'level 35, where Nightmare opens');
+  assert.equal(SaveData.startLevelLabel(60, presets), 'level 60, past Nightmare');
+});
+
+test('a quick death on an uncleared preset leads with practice; a long run does not', () => {
+  assert.equal(SaveData.isQuickDeath({ practice: null, seconds: 20, levelsCleared: 0, level: 20 }), true);
+  assert.equal(SaveData.isQuickDeath({ practice: null, seconds: 20, levelsCleared: 3, level: 23 }), false);
+  assert.equal(SaveData.isQuickDeath({ practice: null, seconds: 90, levelsCleared: 0, level: 20 }), false);
+  assert.equal(SaveData.isQuickDeath({ practice: 'custom start at level 20', seconds: 5, levelsCleared: 0, level: 20 }), false);
+  assert.equal(SaveData.isQuickDeath({ practice: null, seconds: 5, levelsCleared: 0, level: 1 }), false);
+});

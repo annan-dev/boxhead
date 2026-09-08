@@ -509,6 +509,27 @@ export class SaveData {
     };
   }
 
+  /** "level 15, between Intermediate and Expert", "off", or where a preset opens. */
+  static startLevelLabel(level: number, presets: Array<{ name: string; startLevel: number }>): string {
+    if (!level) return 'off';
+    const sorted = [...presets].sort((a, b) => a.startLevel - b.startLevel);
+    const exact = sorted.find((d) => d.startLevel === level);
+    if (exact) return `level ${level}, where ${exact.name} opens`;
+    const below = [...sorted].reverse().find((d) => d.startLevel < level);
+    const above = sorted.find((d) => d.startLevel > level);
+    if (below && above) return `level ${level}, between ${below.name} and ${above.name}`;
+    if (above) return `level ${level}, before ${above.name}`;
+    return `level ${level}, past ${below?.name ?? 'Nightmare'}`;
+  }
+
+  /**
+   * A death inside thirty seconds on a run that cleared fewer than three
+   * waves: the wave was the lesson, so practising it should lead.
+   */
+  static isQuickDeath(result: { practice: string | null; seconds: number; levelsCleared: number; level: number }): boolean {
+    return !result.practice && result.seconds < 30 && result.levelsCleared < UNLOCK_CLEARS && result.level >= 2;
+  }
+
   /** Where a preset opens, for a room the player has not tried at it. */
   static presetLine(difficulty: { name: string; startLevel: number; startMultiplier: number }, devils = true): string {
     const wave = levelDef(difficulty.startLevel);

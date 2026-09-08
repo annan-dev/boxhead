@@ -396,6 +396,7 @@ function bind(session: Session, characterId: string): void {
   loop.setStepMs(session.stepMs);
   slowMotion = false;
   hitStop = 0;
+  lastBeat = 0;
   lastKills = world.kills;
   lastHurt = world.hurt;
 }
@@ -815,8 +816,10 @@ const loop = new Loop(
         lastHurt = world.hurt;
         // The heartbeat has a sound: a thump on each rise while a seat is low.
         let lowest = 1;
-        for (let seat = 0; seat < (run.session instanceof LocalSession ? run.session.localSeats : 1); seat++) {
-          const p = world.players[seat];
+        const seats = run.session instanceof LocalSession ? run.session.localSeats : 1;
+        for (let seat = 0; seat < seats; seat++) {
+          // Seat 0 is whoever this screen drives, which online is not player 0.
+          const p = world.players[seat === 0 ? run.session.localPlayerIndex : seat];
           if (p && p.state === 'alive') lowest = Math.min(lowest, p.life / p.maxLife);
         }
         const beat = run.hud.heartbeat(lowest);

@@ -198,11 +198,25 @@ export class Hud {
    */
   /** The heartbeat's strength this tick at a life ratio: two quick beats then a rest, faster as it gets worse. */
   heartbeat(ratio: number): number {
+    return Hud.heartbeatAt(this.world.tick, ratio);
+  }
+
+  /**
+   * The beat at a tick and a life ratio: a lub then a softer dub a quarter
+   * period on, then rest; the period shortens from 60 ticks at 30% life to
+   * 35 at none. Zero above 30%.
+   */
+  static heartbeatAt(tick: number, ratio: number): number {
     if (ratio > 0.3) return 0;
     const urgency = 1 - ratio / 0.3;
     const period = 60 - urgency * 25;
-    const phase = (this.world.tick % period) / period;
-    return Math.max(0, Math.sin(phase * Math.PI * 2)) * (phase < 0.5 ? 1 : 0.55);
+    const phase = ((tick % period) + period) % period / period;
+    // Each beat is a half-sine an eighth of the period wide.
+    const pulse = (at: number, strength: number): number => {
+      const t = (phase - at) / 0.125;
+      return t >= 0 && t <= 1 ? Math.sin(t * Math.PI) * strength : 0;
+    };
+    return Math.max(pulse(0, 1), pulse(0.25, 0.55));
   }
 
   private drawLowHealth(ctx: CanvasRenderingContext2D, player: Player, seatX: number | null = null): void {
@@ -329,12 +343,14 @@ export class Hud {
       ctx.rotate(marker.angle);
       ctx.beginPath();
       if (marker.devil) {
-        // A devil's marker is a diamond with a point on the way, so it is
-        // told apart by shape as well as colour.
-        ctx.moveTo(size * 1.1, 0);
-        ctx.lineTo(0, -size * 0.8);
-        ctx.lineTo(-size * 0.7, 0);
-        ctx.lineTo(0, size * 0.8);
+        // A devil's marker is horned: a point on the way and two spikes
+        // behind, so it is told apart by shape as well as colour.
+        ctx.moveTo(size * 1.15, 0);
+        ctx.lineTo(0, -size * 0.55);
+        ctx.lineTo(-size * 0.9, -size * 1.0);
+        ctx.lineTo(-size * 0.45, 0);
+        ctx.lineTo(-size * 0.9, size * 1.0);
+        ctx.lineTo(0, size * 0.55);
       } else {
         ctx.moveTo(size, 0);
         ctx.lineTo(-size * 0.7, -size * 0.75);

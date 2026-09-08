@@ -372,7 +372,7 @@ const STYLE = `
                 letter-spacing: .1em; }
 
   /* Lists and forms. */
-  .keys { display: grid; grid-template-columns: 150px 1fr; gap: 10px 22px; color: var(--bone-dim); margin-bottom: 30px;
+  .keys { display: grid; grid-template-columns: 150px 1fr; gap: 7px 22px; color: var(--bone-dim); margin-bottom: 18px;
           max-width: 780px; }
   .keys dt { color: var(--brass); font: 700 11px ${BODY}; text-transform: uppercase; letter-spacing: .16em;
              padding-top: 3px; }
@@ -405,7 +405,7 @@ const STYLE = `
   .ticks span { font: 700 9px "Segoe UI", system-ui, sans-serif; color: var(--muted); letter-spacing: .12em; text-transform: uppercase; }
   /* How to play: two columns where there is room, so it fits a screen. */
   .howto { display: grid; grid-template-columns: 1fr; gap: 0 36px; }
-  @media (min-width: 1180px) { .howto { grid-template-columns: 1fr 1fr; } .howto .keys { grid-template-columns: 120px 1fr; margin-bottom: 14px; } }
+  @media (min-width: 1180px) { .howto { grid-template-columns: 1fr 1fr; } .howto .keys { grid-template-columns: 120px 1fr; margin-bottom: 8px; gap: 5px 18px; line-height: 1.3; font-size: 14px; } .howto h2 { margin-bottom: 10px; } }
   .colhead { margin: 0 0 8px; min-height: 2.6em; }
   button.badge.chip { cursor: pointer; margin-left: 8px; }
   button.badge.chip:hover, button.badge.chip:focus { outline: none; color: #fff; border-color: var(--brass); box-shadow: 0 0 10px var(--brass-glow); }
@@ -424,8 +424,11 @@ const STYLE = `
   .note { background: rgba(201,167,90,.09); border: 1px solid var(--brass-dim); color: #e6cf94;
           padding: 10px 14px; margin: 0 0 16px; max-width: 560px; font-size: 13px; line-height: 1.5; }
   .note.bad { background: rgba(224,17,31,.12); border-color: rgba(224,17,31,.6); color: #ff8791; }
-  .seats { display: grid; gap: 8px; margin: 0 0 24px; max-width: 560px; }
-  .seat { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid #000;
+  .seats { display: grid; gap: 6px; margin: 0 0 12px; max-width: 560px; }
+  .lobby .row { margin-bottom: 9px; }
+  .panel.lobby { padding: 10px 18px 6px; }
+  .lobby h2 { margin-bottom: 10px; }
+  .seat { display: flex; align-items: center; gap: 12px; padding: 8px 14px; border: 1px solid #000;
           background: linear-gradient(#1d1d21, #141417); box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 3px 0 #000; }
   .seat.me { box-shadow: inset 0 0 0 1px var(--red), 0 3px 0 #000, 0 0 16px rgba(224,17,31,.25); }
   .seat.empty { color: var(--muted); border-style: dashed; border-color: #2a2a2f; background: none; box-shadow: none; }
@@ -591,9 +594,15 @@ export class Menus {
       if (el?.tagName === 'SELECT' || el?.tagName === 'INPUT') return;
       if (control(event.target)) this.callbacks.onUiSound?.('click');
     });
+    let lastRangeTick = 0;
     this.root.addEventListener('input', (event) => {
       const el = event.target as HTMLElement | null;
-      if (el?.tagName === 'INPUT' && (el as HTMLInputElement).type === 'range') this.callbacks.onUiSound?.('hover');
+      if (el?.tagName !== 'INPUT' || (el as HTMLInputElement).type !== 'range') return;
+      // A drag across sixty detents is not sixty ticks: one every 60 ms at most.
+      const now = performance.now();
+      if (now - lastRangeTick < 60) return;
+      lastRangeTick = now;
+      this.callbacks.onUiSound?.('hover');
     });
     this.root.addEventListener('change', (event) => {
       const el = event.target as HTMLElement | null;
@@ -863,16 +872,7 @@ export class Menus {
 
   /** "level 15, between Intermediate and Expert", or "off". */
   private startLevelLabel(): string {
-    const level = this.save.startLevel;
-    if (!level) return 'off';
-    const presets = [...DIFFICULTIES].sort((a, b) => a.startLevel - b.startLevel);
-    const exact = presets.find((d) => d.startLevel === level);
-    if (exact) return `level ${level}, where ${exact.name} opens`;
-    const below = [...presets].reverse().find((d) => d.startLevel < level);
-    const above = presets.find((d) => d.startLevel > level);
-    if (below && above) return `level ${level}, between ${below.name} and ${above.name}`;
-    if (above) return `level ${level}, before ${above.name}`;
-    return `level ${level}, past ${below?.name ?? 'Nightmare'}`;
+    return SaveData.startLevelLabel(this.save.startLevel, DIFFICULTIES);
   }
 
   /** The first bound key of each action, as caps, for the how-to-play. */
@@ -1149,10 +1149,9 @@ export class Menus {
       <div>
       <h2>Surviving</h2>
       <dl class="keys">
-        <dt>Multiplier</dt><dd>Every kill raises it by one; stop killing and it drains,
-          faster the higher it climbs. Weapons and upgrades are awarded at multiplier
-          thresholds &mdash; the UZI at x5, the shotgun at x10, the railgun at x70 &mdash;
-          and kept for the rest of the run.</dd>
+        <dt>Multiplier</dt><dd>Every kill raises it by one; stop killing and it drains, faster
+          the higher it climbs. Weapons and upgrades arrive at thresholds (UZI x5, shotgun x10,
+          railgun x70) and are kept for the run.</dd>
         <dt>Levels</dt><dd>Clear a wave to level up. Each level is bigger and faster;
           zombies at level 40 move five times as fast as at level 1.</dd>
         <dt>Health</dt><dd>Regenerates on its own, fully in thirty seconds. A crate found
@@ -1161,8 +1160,8 @@ export class Menus {
           drops a crate, as does every devil; a crate refills one weapon you carry.</dd>
         <dt>Barrels</dt><dd>Solid, and they block zombies as well as you. One shot sets
           one off. Place your own with key 4 once earned, and lead zombies into them.</dd>
-        <dt>Barricades</dt><dd>Fake walls (key 6) hold zombies off for good; only devils
-          and your own fire bring them down. Wall yourself in and the wave never ends.</dd>
+        <dt>Barricades</dt><dd>Fake walls (key 6) hold zombies off; only devils and your own
+          fire bring them down.</dd>
       </dl>
       </div>
       </div>
@@ -1684,10 +1683,11 @@ export class Menus {
     const me = view.players.find((p) => p.index === view.localIndex);
     const seats: string[] = [];
     const maxSeats = Math.max(4, ...view.players.map((p) => p.index + 1));
+    let open = 0;
     for (let i = 0; i < maxSeats; i++) {
       const player = view.players.find((p) => p.index === i);
       if (!player) {
-        seats.push(`<div class="seat empty"><span class="n">open seat</span></div>`);
+        open += 1;
         continue;
       }
       seats.push(`
@@ -1699,6 +1699,7 @@ export class Menus {
           <span class="r ${player.ready ? 'on' : ''}">${player.ready ? 'ready' : 'not ready'}</span>
         </div>`);
     }
+    if (open > 0) seats.push(`<div class="seat empty"><span class="n">${open} open ${open === 1 ? 'seat' : 'seats'}</span></div>`);
     const room = view.rooms.find((r) => r.id === view.config.roomId);
     const canEdit = view.isHost && view.phase !== 'playing';
     const everyoneReady = view.players.every((p) => p.ready || !p.connected);
@@ -1709,7 +1710,7 @@ export class Menus {
         <div>server <b>${escapeHtml(view.address)}</b></div>
         <div>${escapeHtml(view.status)}</div>
       </div>
-      <div class="panel"><div class="paper">
+      <div class="panel lobby"><div class="paper">
       <div class="seats">${seats.join('')}</div>
       <h2>Match</h2>
       <div class="row">
@@ -1717,9 +1718,7 @@ export class Menus {
         <select id="lroom" ${canEdit ? '' : 'disabled'}>
           ${view.rooms.map((r) => `<option value="${r.id}" ${r.id === view.config.roomId ? 'selected' : ''}>${escapeHtml(r.name)}</option>`).join('')}
         </select>
-      </div>
-      <div class="row">
-        <label for="lmode">Mode</label>
+        <label for="lmode" style="margin-left:18px;min-width:0">Mode</label>
         <select id="lmode" ${canEdit ? '' : 'disabled'}>
           <option value="coop" ${view.config.mode === 'coop' ? 'selected' : ''}>Co-op &mdash; survive together</option>
           <option value="deathmatch" ${view.config.mode === 'deathmatch' ? 'selected' : ''}>Deathmatch &mdash; every player for themselves</option>
@@ -1730,9 +1729,7 @@ export class Menus {
         <select id="ldiff" ${canEdit ? '' : 'disabled'}>
           ${DIFFICULTIES.map((d) => `<option value="${d.id}" ${d.id === view.config.difficulty ? 'selected' : ''}>${d.name}</option>`).join('')}
         </select>
-      </div>
-      <div class="row">
-        <label for="lspeed">Game speed</label>
+        <label for="lspeed" style="margin-left:18px;min-width:0">Game speed</label>
         <select id="lspeed" ${canEdit ? '' : 'disabled'}>
           ${GAME_SPEEDS.map((sp) => `<option value="${sp.id}" ${sp.id === view.config.gameSpeed ? 'selected' : ''}>${sp.name}</option>`).join('')}
         </select>
@@ -1740,12 +1737,9 @@ export class Menus {
       <div class="row">
         <label for="ldevils">Devils</label>
         <input type="checkbox" id="ldevils" ${view.config.devils ? 'checked' : ''} ${canEdit ? '' : 'disabled'}>
-        <span class="hint">${room ? escapeHtml(room.name) : ''}</span>
-      </div>
-      <div class="row">
-        <label for="lstart">Practice start</label>
-        <input type="range" id="lstart" min="1" max="60" value="${practiceStart(view.config) || 1}" ${canEdit ? '' : 'disabled'}>
-        <span id="lstartVal">${practiceStart(view.config) ? `level ${practiceStart(view.config)} &middot; nothing is recorded` : 'off'}</span>
+        <label for="lstart" style="margin-left:18px">Practice start</label>
+        <input type="range" id="lstart" min="1" max="60" value="${practiceStart(view.config) || 1}" ${canEdit ? '' : 'disabled'} style="max-width:160px">
+        <span id="lstartVal" class="hint">${practiceStart(view.config) ? `level ${practiceStart(view.config)} &middot; nothing is recorded` : 'off'}</span>
       </div>
       ${
         view.phase === 'playing'
@@ -1777,6 +1771,11 @@ export class Menus {
       const devils = inner.querySelector<HTMLInputElement>('#ldevils')!;
       devils.addEventListener('change', () => this.callbacks.onLobbyConfigure({ devils: devils.checked }));
       const start = inner.querySelector<HTMLInputElement>('#lstart')!;
+      const startValue = inner.querySelector<HTMLSpanElement>('#lstartVal')!;
+      start.addEventListener('input', () => {
+        const level = Number(start.value);
+        startValue.textContent = level <= 1 ? 'off' : `level ${level} · nothing is recorded`;
+      });
       start.addEventListener('change', () => {
         const level = Number(start.value);
         this.callbacks.onLobbyConfigure({ startLevel: level <= 1 ? 0 : level });
@@ -1800,7 +1799,7 @@ export class Menus {
     // One run is the row beneath; the line earns its place from the second.
     const record = line && line.runs > 1 ? line : null;
     // A quick death on a preset never cleared here: the wave is the lesson, so practising it leads.
-    const quickDeath = !result.practice && result.seconds < 30 && result.levelsCleared < UNLOCK_CLEARS && result.level >= 2;
+    const quickDeath = SaveData.isQuickDeath(result);
     const verdict = result.practice
       ? `<span class="badge strong">&#9888; practice run (${result.practice}) &mdash; not recorded</span>${
           this.save.startLevel ? ' <button class="badge chip" id="practiceOff" type="button">practice off</button>' : ''

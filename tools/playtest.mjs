@@ -197,7 +197,10 @@ async function main() {
       const shot = await cdp.send('Page.captureScreenshot', { format: 'png' });
       const file = join(out, `${name}.png`);
       writeFileSync(file, Buffer.from(shot.data, 'base64'));
-      const line = { scenario: name, file, ms: Date.now() - started, ...(stats ?? {}) };
+      // How far a menu runs past the window: zero is the only good number.
+      const overflow = await evaluate(cdp, `Math.max(0, (document.querySelector('.menu.on')?.scrollHeight ?? 0) - window.innerHeight)`);
+      const line = { scenario: name, file, ms: Date.now() - started, overflow, ...(stats ?? {}) };
+      if (overflow > 0) console.error(`${name}: the menu runs ${overflow}px past the window`);
       results.push(line);
       console.log(JSON.stringify(line));
     }
@@ -296,11 +299,19 @@ async function runCoop(host) {
     const lobbyShot = await host.send('Page.captureScreenshot', { format: 'png' });
     writeFileSync(join(out, 'coop-lobby.png'), Buffer.from(lobbyShot.data, 'base64'));
 
+    // The host opens the match on a practice level, so the option is proven online.
+    await evaluate(host, `__game.run.session.configure({ startLevel: 15 }); 'ok'`);
+    await new Promise((r) => setTimeout(r, 300));
+    const lobbyOverflow = await evaluate(host, `Math.max(0, (document.querySelector('.menu.on')?.scrollHeight ?? 0) - window.innerHeight)`);
     await evaluate(guest, `__game.run.session.setReady(true); 'ok'`);
     await new Promise((r) => setTimeout(r, 300));
     await evaluate(host, `__game.run.session.setReady(true); 'ok'`);
     await new Promise((r) => setTimeout(r, 300));
     await evaluate(host, `__game.run.session.start(); 'ok'`);
+    // The opening banner lives four seconds; look for it as the wave opens, not after the drive.
+    const bannerOf = (cdp) =>
+      evaluate(cdp, `(async () => { for (let i = 0; i < 60; i++) { if (__game.world?.messages.some((m) => m.kind === 'level')) return true; await new Promise((r) => setTimeout(r, 50)); } return false; })()`);
+    const [hostBanner, guestBanner] = await Promise.all([bannerOf(host), bannerOf(guest)]);
     // Both seats walk and shoot for a few seconds of real time.
     const drive = (cdp, keys) =>
       evaluate(
@@ -348,9 +359,17 @@ async function runCoop(host) {
     }
     const bothInWave = hostStats.screen === 'none' && guestStats.screen === 'none' && hostStats.tick > 0 && guestStats.tick > 0;
     const match = await evaluate(host, `(() => { const c = __game.run.session.config; return c ? { difficulty: c.difficulty, mode: c.mode, startLevel: c.startLevel ?? 0 } : null; })()`);
+    const levels = {
+      host: hostStats.level,
+      guest: guestStats.level,
+      hostBanner,
+      guestBanner,
+    };
     const report = {
       joinedAs: { host: hostScreen, guest: guestScreen },
       match,
+      levels,
+      lobbyOverflow,
       bothInWave,
       reconnect,
       host: { ...hostStats, net: hostNet },
