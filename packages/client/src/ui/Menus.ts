@@ -221,22 +221,22 @@ const STYLE = `
   .menu.hero .bg { background: ${GRAIN}, transparent; opacity: .55; }
   .menu.hero .bg::before { background: radial-gradient(ellipse 62% 58% at 50% 40%, transparent 35%, rgba(0,0,0,.72) 100%); }
   .menu.hero .bg::after { display: none; }
+  /* The title is one column, 400px wide, standing in the left third of the
+     key art: logo, subtitle, stats, rules and buttons all centred on its axis. */
   .menu.hero .inner { padding: 6vh 0 40px 7vw; max-width: none; text-align: left; }
   .menu.hero .inner::before { content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none;
               background: linear-gradient(90deg, rgba(6,6,9,.94) 0%, rgba(6,6,9,.86) 28%, rgba(6,6,9,.35) 48%, transparent 64%); }
-  .menu.hero h1 { text-align: left; }
-  .menu.hero .sub { text-align: left; margin-left: 0; }
+  .menu.hero .column { width: 400px; max-width: 86vw; text-align: center; }
+  .menu.hero h1 { text-align: center; }
+  .menu.hero .sub { text-align: center; margin-left: 0; letter-spacing: .2em; white-space: nowrap; }
   .menu.hero .sub::before { display: none; }
-  .menu.hero .stats { justify-content: flex-start; }
-  .menu.hero .btn, .menu.hero .rule { margin-left: 0; margin-right: 0; }
-  .menu.hero img.logo { width: min(440px, 80%); margin: 0 0 0 -10px;
+  .menu.hero .stats { justify-content: center; }
+  .menu.hero .btn, .menu.hero .rule { margin-left: auto; margin-right: auto; max-width: 400px; }
+  .menu.hero img.logo { width: 100%; margin: 0;
                         filter: drop-shadow(0 10px 0 rgba(0,0,0,.6)) drop-shadow(0 0 36px rgba(224,17,31,.55)); }
   .menu.hero .sub { color: #e6d4a8; }
   .menu.hero .stats { color: #a8987a; }
   .menu.hero .stats b { color: #f3e3b6; }
-  .menu.hero .btn { max-width: 360px; }
-  /* The rules under and over the buttons are as wide as the buttons, so their diamonds sit on the same axis. */
-  .menu.hero .rule { max-width: 360px; }
 
   /* Embers rising through the dark, cheap enough to leave running. */
   .embers { position: fixed; inset: 0; pointer-events: none; z-index: 1; overflow: hidden; }
@@ -841,6 +841,7 @@ export class Menus {
     const parkedRoom = parked ? this.rooms.find((room) => room.id === parked.roomId) : undefined;
     const logo = this.screens?.logo;
     const inner = this.shell(`
+      <div class="column">
       <h1 ${logo ? 'hidden' : ''}>BOXHEAD</h1>
       ${logo ? `<img class="logo" src="${assetUrl(`bitmaps/${logo}`)}" alt="Boxhead">` : ''}
       <div class="sub">2Play &middot; single player &middot; survive the rooms</div>
@@ -861,6 +862,7 @@ export class Menus {
       <button class="btn" data-go="options">Options</button>
       <button class="btn" data-go="instructions">How to play</button>
       <div class="rule"></div>
+      </div>
       <div class="build">build ${escapeHtml(__BUILD__)}</div>
     `, true);
     this.wireGoButtons(inner);
