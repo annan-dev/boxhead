@@ -404,6 +404,6 @@ modern shooters, and the grenade meets the arena by height:
 - **HUD**: loadout cards with drawn weapon icons bottom right, squad bars with
   the characters' heads bottom left, a player-centred minimap top left.
 - **Pings**: F pings the aim; held, a wheel of marks (enemy, going here,
-  crate, hold here, help, devil). Relayed through the server as   messages, rate-limited to four a second; drawn in the arena, at the edge,
-  and on the minimap. The co-op harness reports .
+  crate, hold here, help, devil). Relayed through the server as mark messages, rate-limited to four a second; drawn in the arena, at the edge,
+  and on the minimap. The co-op harness reports pingRelayed.
 - Harness scenarios grenade-arc, wheel and ping capture the new HUD.
