@@ -377,6 +377,12 @@ const STYLE = `
                 text-transform: uppercase; letter-spacing: .16em; padding: 4px 18px 6px 0; }
   .history td { padding: 4px 18px 4px 0; border-top: 1px solid rgba(255,255,255,.05); }
   .history td b { color: var(--bone); }
+  .tabs { display: flex; gap: 6px; margin: -6px 0 14px; flex-wrap: wrap; }
+  .tab { font: 700 11px "Segoe UI", system-ui, sans-serif; letter-spacing: .2em; text-transform: uppercase;
+         padding: 9px 18px; color: var(--bone-dim); background: linear-gradient(#1d1d21, #141417); border: 1px solid #000;
+         border-bottom-color: var(--brass-dim); cursor: pointer; box-shadow: inset 0 1px 0 rgba(255,255,255,.06); }
+  .tab:hover, .tab:focus { outline: none; color: var(--bone); border-color: var(--brass-dim); }
+  .tab.on { color: #f3e3b6; border-color: var(--brass); border-bottom-color: var(--red); box-shadow: inset 0 0 18px var(--brass-glow), 0 0 12px var(--brass-glow); }
   .keygrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0 30px; max-width: 700px; }
   .keygrid .row { margin-bottom: 10px; }
   .keygrid label { min-width: 140px; }
@@ -452,6 +458,8 @@ export class Menus {
   private current: Screen = 'none';
   /** Where a secondary screen (options, how to play) returns to. */
   private origin: Screen = 'title';
+  /** Which page of the options is open; remembered across visits. */
+  private optionsTab: 'game' | 'sound' | 'feel' | 'controls' | 'progress' = 'game';
   private selectedCharacter: string;
   private selectedRoom: string;
   /** True while seated on a server; changes what pause and quit mean. */
@@ -1002,7 +1010,13 @@ export class Menus {
     const inner = this.shell(`
       <button class="back">&larr; back</button>
       <h2>Options</h2>
+      <div class="tabs">
+        ${(['game', 'sound', 'feel', 'controls', 'progress'] as const)
+          .map((tab) => `<button class="tab ${tab === this.optionsTab ? 'on' : ''}" data-tab="${tab}">${tab}</button>`)
+          .join('')}
+      </div>
       <div class="panel"><div class="paper">
+      <section data-tab="game" ${this.optionsTab === 'game' ? '' : 'hidden'}>
       <div class="row">
         <label for="difficulty">Difficulty</label>
         <select id="difficulty">
@@ -1027,7 +1041,8 @@ export class Menus {
         <input type="checkbox" id="devils" ${this.save.devils ? 'checked' : ''}>
         <span id="devilsBadge" ${this.save.devils ? 'hidden' : ''}>${NO_SCORE_BADGE}</span>
       </div>
-      <h2 style="margin-top:30px">Sound</h2>
+      </section>
+      <section data-tab="sound" ${this.optionsTab === 'sound' ? '' : 'hidden'}>
       <div class="row">
         <label for="vol">Volume</label>
         <input type="range" id="vol" min="0" max="100" value="${Math.round(this.save.volume * 100)}">
@@ -1042,7 +1057,8 @@ export class Menus {
         <label for="mute">Mute</label>
         <input type="checkbox" id="mute" ${this.save.muted ? 'checked' : ''}>
       </div>
-      <h2 style="margin-top:30px">Feel</h2>
+      </section>
+      <section data-tab="feel" ${this.optionsTab === 'feel' ? '' : 'hidden'}>
       <div class="row">
         <label for="shake">Screen shake</label>
         <input type="range" id="shake" min="0" max="100" value="${Math.round(this.save.shake * 100)}">
@@ -1067,7 +1083,8 @@ export class Menus {
         <input type="checkbox" id="tips" ${this.save.tips ? 'checked' : ''}>
         <button class="key" id="resetTips" type="button">show them again</button>
       </div>
-      <h2 style="margin-top:30px">Controls</h2>
+      </section>
+      <section data-tab="controls" ${this.optionsTab === 'controls' ? '' : 'hidden'}>
       <p class="hint" style="margin:0 0 12px">Click a key and press the new one, or a mouse button. Shift-click to add a second key
         beside the first. Weapons stay on 1 to 0; Escape, R, M and F3 are the game's own.</p>
       <div id="keyNote" class="note bad" hidden></div>
@@ -1081,7 +1098,8 @@ export class Menus {
           .join('')}
       </div>
       <button class="btn secondary" id="resetKeys" style="max-width:280px">Default keys</button>
-      <h2 style="margin-top:30px">Progress</h2>
+      </section>
+      <section data-tab="progress" ${this.optionsTab === 'progress' ? '' : 'hidden'}>
       <div class="stats">
         <div>rooms unlocked <b>${Math.min(this.save.unlockedRooms, this.rooms.length)}</b> / ${this.rooms.length}</div>
         <div>combined best <b>${this.save.totalBest.toLocaleString()}</b></div>
@@ -1116,9 +1134,17 @@ export class Menus {
         </div>
       </div>
       <button class="btn danger" id="reset">Reset scores and unlocks</button>
+      </section>
       </div></div>
     `);
     this.backButton(inner, this.origin);
+    for (const tab of inner.querySelectorAll<HTMLButtonElement>('button.tab')) {
+      tab.addEventListener('click', () => {
+        this.optionsTab = tab.dataset.tab as typeof this.optionsTab;
+        for (const other of inner.querySelectorAll<HTMLButtonElement>('button.tab')) other.classList.toggle('on', other === tab);
+        for (const section of inner.querySelectorAll<HTMLElement>('section[data-tab]')) section.hidden = section.dataset.tab !== tab.dataset.tab;
+      });
+    }
 
     const volume = inner.querySelector<HTMLInputElement>('#vol')!;
     const volumeValue = inner.querySelector<HTMLSpanElement>('#volVal')!;
