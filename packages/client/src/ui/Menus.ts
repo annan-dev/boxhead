@@ -1169,7 +1169,7 @@ export class Menus {
         <dt>${escapeHtml(this.keyLabel(['grenade']))}</dt><dd>grenade &mdash; hold to throw farther, release to lob; the arc shows where it lands</dd>
         <dt>${escapeHtml(this.keyLabel(['primary', 'secondary']))}</dt><dd>primary (a gun) and secondary (a placeable) &mdash; tap to take it in hand,
           hold and move the mouse to choose what the slot holds</dd>
-        <dt>${escapeHtml(this.keyLabel(['prev', 'next']))}, wheel</dt><dd>cycle the guns</dd>
+        <dt>${escapeHtml(this.keyLabel(['prev', 'next']))}, wheel</dt><dd>cycle the guns, or the placeables while one is in hand</dd>
         <dt>${escapeHtml(this.keyLabel(['ping']))}</dt><dd>ping where you aim &mdash; hold for the wheel: enemy, going here, crate, hold here, help, devil</dd>
         <dt>${escapeHtml(this.keyLabel(['pause']))}</dt><dd>quick pause</dd>
         <dt>Escape</dt><dd>pause menu: resume, restart, options, quit</dd>

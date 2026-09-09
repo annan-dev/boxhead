@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { World, emptyCommand } from '../src/sim/World.js';
 import { GameMap, roomFromAscii } from '../src/map/GameMap.js';
 import { stepGrenade, previewGrenade, OBSTACLE_HEIGHT, type GrenadeBody } from '../src/sim/Grenade.js';
-import { GRENADE, GUN_IDS, WEAPONS } from '../src/data/weapons.js';
+import { GRENADE, GUN_IDS, PLACEABLE_IDS, WEAPONS } from '../src/data/weapons.js';
 import { ROOMS } from '../src/data/rooms.js';
 
 /** A corridor with one cube in the middle; the cell is 32 px. */
@@ -136,6 +136,14 @@ test('the cycle keys step through the guns only, and the grenade is never taken 
   assert.notEqual(player.current, 'grenade');
   world.step([{ ...emptyCommand(), weaponSlot: WEAPONS.barrel.slot, aimX: player.x + 10, aimY: player.y }]);
   assert.equal(player.current, 'barrel', 'a placeable is still chosen by its number');
+  // With a placeable in hand the cycle keys step through the placeables instead.
+  const placed = new Set<string>();
+  for (let i = 0; i < 4; i++) {
+    world.step([{ ...emptyCommand(), nextWeapon: true, aimX: player.x + 10, aimY: player.y }]);
+    placed.add(player.current);
+  }
+  for (const id of placed) assert.ok(PLACEABLE_IDS.includes(id as never), `the cycle left the placeables for ${id}`);
+  assert.ok(placed.has('mine') && placed.has('barrel'));
 });
 
 test('a preview of a weak throw at a wall post turns back; a full one over a cube lands beyond it', () => {

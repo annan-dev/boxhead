@@ -20,7 +20,7 @@ comes back), `G` grenade (hold to
 throw farther; the arc shows where it lands), `1` primary and `2` secondary (tap to take
 it in hand, hold and move the mouse to choose what the slot holds: a gun in the primary,
 a barrel, wall, mine or charge pack in the secondary), `Q`/`E` or mouse wheel cycle the
-guns, `F` ping where you aim (hold for the wheel: enemy, going here, crate, hold here,
+guns, or the placeables while one is in hand, `F` ping where you aim (hold for the wheel: enemy, going here, crate, hold here,
 help, devil), `P` quick pause, `Esc` pause menu (resume, restart, options, quit), `R`
 restart while paused, `M` mute, `F3` stats. Every key can be rebound in Options, and so
 can the gamepad's buttons. A standard gamepad works everywhere: sticks move and aim,

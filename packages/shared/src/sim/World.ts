@@ -40,6 +40,7 @@ import {
   WEAPONS,
   WEAPON_ORDER,
   GUN_IDS,
+  PLACEABLE_IDS,
   explosionFalloff,
   explosionRadius,
   weaponBySlot,
@@ -1022,9 +1023,11 @@ export class World {
       return;
     }
     if (command.nextWeapon || command.prevWeapon) {
-      // The cycle keys step through the guns, skipping any that are owned
-      // but empty, as the original's `NextWeapon` / `PrevWeapon` did.
-      const usable = GUN_IDS.filter(
+      // The cycle keys step through the slot in hand, the guns or the
+      // placeables, skipping any that are owned but empty, as the original's
+      // `NextWeapon` / `PrevWeapon` did.
+      const family = PLACEABLE_IDS.includes(player.current) ? PLACEABLE_IDS : GUN_IDS;
+      const usable = family.filter(
         (id) => player.weapons.get(id)?.unlocked && !this.weaponEmpty(player, id),
       );
       if (usable.length === 0) return;
